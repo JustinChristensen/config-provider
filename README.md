@@ -1,0 +1,2 @@
+# Config provider for Haskell
+
