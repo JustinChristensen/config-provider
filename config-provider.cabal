@@ -1,38 +1,36 @@
-cabal-version:       >=1.10
-
-name:                config-provider
-version:             0.0.1
-synopsis:            Configuration reader inspired by ASP.NET Core's ConfigurationProvider
-license:             MIT
-license-file:        LICENSE.md
-author:              Justin Christensen
-maintainer:          justin@promise.io
-category:            System
-build-type:          Simple
-extra-source-files:  *.md
+cabal-version: >=1.10
+name: config-provider
+version: 0.0.1
+license: MIT
+license-file: LICENSE.md
+maintainer: justin@promise.io
+author: Justin Christensen
+synopsis: Configuration reader inspired by ASP.NET Core's ConfigurationProvider
+category: System
+build-type: Simple
+extra-source-files:
+    *.md
 
 library
-  exposed-modules: 
-      System.Environment.Config
-  build-depends:       
-      base >=4.11 && <4.12
-    , mtl == 2.2.*
-    , containers == 0.6.*
-  hs-source-dirs:      src
-  default-language:    Haskell2010
+    exposed-modules:
+        System.Environment.Config
+    hs-source-dirs: src
+    default-language: Haskell2010
+    build-depends:
+        base >=4.11 && <4.12,
+        mtl ==2.2.*,
+        containers ==0.6.*
 
 test-suite config-provider-test
-  type: exitcode-stdio-1.0
-  main-is: Spec.hs
-  other-modules:
-      Paths_config_provider
-  hs-source-dirs:
-      test
-  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
-  build-depends:
-      base >=4.7 && <5
-    , hspec == 2.6.*
-    , config-provider
-  default-language: Haskell2010
-  other-modules:
-    System.Environment.ConfigSpec
+    type: exitcode-stdio-1.0
+    main-is: Spec.hs
+    hs-source-dirs: test
+    other-modules:
+        Paths_config_provider
+        System.Environment.ConfigSpec
+    default-language: Haskell2010
+    ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
+    build-depends:
+        base >=4.7 && <5,
+        hspec ==2.6.*,
+        config-provider -any

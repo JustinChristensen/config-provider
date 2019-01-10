@@ -1,4 +1,16 @@
-module System.Environment.Config (getConfig) where
+module System.Environment.Config (
+      getConfig
+    , getConfigDefault
+    , jsonFileReader
+    , xmlFileReader
+    , yamlFileReader
+    , iniFileReader
+    , remoteReader
+    , envReader
+    , argsReader
+    , defaultReader
+    , getEnvName
+) where
 
 import System.Environment (lookupEnv, getArgs, getEnvironment)
 import Control.Monad.State (StateT, runStateT, state, liftIO)
@@ -7,36 +19,50 @@ import qualified Data.Map as M
 type Config = M.Map String String
 type EnvReader = StateT Config IO
 
-jsonFileSource :: FilePath -> EnvReader ()
-jsonFileSource path = return ()
+defaultEnvNameVar :: String
+defaultEnvNameVar = "ENV"
 
-xmlFileSource :: FilePath -> EnvReader ()
-xmlFileSource path = return ()
-
-yamlFileSource :: FilePath -> EnvReader ()
-yamlFileSource path = return ()
-
-iniFileSource :: FilePath -> EnvReader ()
-iniFileSource path = return ()
-
-envSource :: EnvReader ()
-envSource = return ()
-
-argsSource :: EnvReader ()
-argsSource = return ()
+defaultEnvPrefixFilter :: [String]
+defaultEnvPrefixFilter = [
+      defaultEnvNameVar
+    , "HS_"
+    , "HOST"
+    , "PORT"]
 
 getEnvName :: IO (Maybe String)
-getEnvName = lookupEnv "ENV"
+getEnvName = lookupEnv defaultEnvNameVar
+
+jsonFileReader :: FilePath -> EnvReader ()
+jsonFileReader path = return ()
+
+xmlFileReader :: FilePath -> EnvReader ()
+xmlFileReader path = return ()
+
+yamlFileReader :: FilePath -> EnvReader ()
+yamlFileReader path = return ()
+
+iniFileReader :: FilePath -> EnvReader ()
+iniFileReader path = return ()
+
+remoteReader :: IO Config -> EnvReader ()
+remoteReader action = return ()
+
+envReader :: [String] -> EnvReader ()
+envReader filter = return ()
+
+argsReader :: EnvReader ()
+argsReader = return ()
 
 defaultReader :: EnvReader ()
 defaultReader = do
-    jsonFileSource "config/app.json"
+    jsonFileReader "config/app.json"
     do
         mEnv <- liftIO getEnvName 
         case mEnv of
-            Just env -> jsonFileSource $ "config/app." ++ env ++ ".json"
-    envSource
-    argsSource
+            Just env -> jsonFileReader $ "config/app." ++ env ++ ".json"
+            _ -> return ()
+    envReader defaultEnvPrefixFilter
+    argsReader
 
 getConfigDefault :: IO Config
 getConfigDefault = getConfig defaultReader
