@@ -27,10 +27,13 @@ test-suite config-provider-test
     hs-source-dirs: test
     other-modules:
         Paths_config_provider
+        SpecHelper
         System.Environment.ConfigSpec
     default-language: Haskell2010
     ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
     build-depends:
         base >=4.7 && <5,
         hspec ==2.6.*,
+        containers ==0.6.*,
+        mtl ==2.2.*,
         config-provider -any

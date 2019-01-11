@@ -13,7 +13,9 @@ module System.Environment.Config (
 ) where
 
 import System.Environment (lookupEnv, getArgs, getEnvironment)
-import Control.Monad.State (StateT, runStateT, state, liftIO)
+import Control.Monad.State (StateT(..), execStateT, liftIO)
+import Data.Char (toLower)
+import Data.List (isPrefixOf)
 import qualified Data.Map as M
 
 type Config = M.Map String String
@@ -27,10 +29,27 @@ defaultEnvPrefixFilter = [
       defaultEnvNameVar
     , "HS_"
     , "HOST"
-    , "PORT"]
+    , "PORT"
+    ]
 
 getEnvName :: IO (Maybe String)
 getEnvName = lookupEnv defaultEnvNameVar
+
+unifyConfig :: (Config -> IO Config) -> Config -> IO ((), Config) 
+unifyConfig f c1 = do
+    c2 <- f c1
+    return ((), M.union c2 c1)
+
+normalizeEnvKey :: (String, String) -> (String, String)
+normalizeEnvKey (k, v) = (map normalize k, v) 
+    where
+        normalize '_' = '.'
+        normalize c = toLower c 
+
+filterEnv :: [(String, String)] -> [String] -> [(String, String)]
+filterEnv env prefixes = map normalizeEnvKey $ filter keyMatchesPrefix env
+    where
+        keyMatchesPrefix (k, _) = any (`isPrefixOf` k) prefixes
 
 jsonFileReader :: FilePath -> EnvReader ()
 jsonFileReader path = return ()
@@ -48,7 +67,9 @@ remoteReader :: IO Config -> EnvReader ()
 remoteReader action = return ()
 
 envReader :: [String] -> EnvReader ()
-envReader filter = return ()
+envReader prefixes = StateT $ unifyConfig $ \config -> do
+    env <- getEnvironment
+    return $ M.fromList $ filterEnv env prefixes
 
 argsReader :: EnvReader ()
 argsReader = return ()
@@ -68,6 +89,4 @@ getConfigDefault :: IO Config
 getConfigDefault = getConfig defaultReader
 
 getConfig :: EnvReader () -> IO Config
-getConfig reader = do
-    (_, config) <- runStateT reader M.empty
-    return config
+getConfig reader = execStateT reader M.empty
