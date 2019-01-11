@@ -12,7 +12,7 @@ import Control.Monad.State (execStateT)
 -- TODO: define API for deriving CLI usage string from config value type
 
 spec :: Spec
-spec = do
+spec = 
     -- describe "getEnvName" $ do
     --     it "should read the environment name from args" pending
     --     it "should read the environment name from env vars" pending
@@ -57,17 +57,11 @@ spec = do
                     ]
             it "should filter out environment variables not listed in the prefix filter" $ do
                 config <- execStateT (envReader ["HS_"]) M.empty
-                config `shouldHaveKeys` [
-                        "hs.vault.api.key"
-                    ,   "hs.db.host"
-                    ,   "hs.db.port"
-                    ]
-                config `shouldNotHaveKeys` [
-                        "foo"
-                    ,   "host"
-                    ,   "port"
-                    ]
-            -- it "should normalize environment variables to lowercase and dot separators" pending
+                config `shouldHaveKeys` ["hs.vault.api.key", "hs.db.host", "hs.db.port"]
+                config `shouldNotHaveKeys` ["foo" , "host" , "port"]
+            it "should normalize environment variables to lowercase and dot separators" $ do
+                config <- execStateT (envReader ["HS_DB_", "TOO"]) M.empty
+                config `shouldHaveKeys` ["hs.db.host", "hs.db.port", "too.many.underscores"]
 
     -- https://github.com/aspnet/Extensions/blob/master/src/Configuration/Config.CommandLine/src/CommandLineConfigurationProvider.cs
     -- describe "argsReader" $ do

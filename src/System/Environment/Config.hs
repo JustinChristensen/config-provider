@@ -41,10 +41,11 @@ unifyConfig f c1 = do
     return ((), M.union c2 c1)
 
 normalizeEnvKey :: (String, String) -> (String, String)
-normalizeEnvKey (k, v) = (map normalize k, v) 
+normalizeEnvKey (k, v) = (normalize k, v) 
     where
-        normalize '_' = '.'
-        normalize c = toLower c 
+        normalize ('_':xs) = '.' : normalize (dropWhile (== '_') xs)
+        normalize (c:xs) = toLower c : normalize xs
+        normalize [] = []
 
 filterEnv :: [(String, String)] -> [String] -> [(String, String)]
 filterEnv env prefixes = map normalizeEnvKey $ filter keyMatchesPrefix env
