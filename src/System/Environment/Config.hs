@@ -27,18 +27,7 @@ type EnvReader = StateT Config IO
 
 lcase = map toLower
 
-defaultEnvNameVar :: String
-defaultEnvNameVar = "env"
-
-defaultEnvPrefixFilter :: [String]
-defaultEnvPrefixFilter = [
-      defaultEnvNameVar
-    , "hs_"
-    , "host"
-    , "port"
-    ]
-
-unifyConfig :: (Config -> IO Config) -> Config -> IO ((), Config) 
+unifyConfig :: (Config -> IO Config) -> Config -> IO ((), Config)
 unifyConfig f c1 = do
     c2 <- f c1
     return ((), M.union c2 c1)
@@ -57,8 +46,8 @@ filterEnv prefixes env = map normalizeEnvKey' $ filter keyMatchesPrefix env
 argToPair :: String -> (String, String)
 argToPair ('-':'-':arg) = argToPair arg
 argToPair arg = splitAtChar '=' arg
-    where 
-        splitAtChar c str = let 
+    where
+        splitAtChar c str = let
                 key = normalizeEnvKey $ takeWhile (/= c) str
                 val = case dropWhile (/= c) str of
                     "" -> ""
@@ -66,9 +55,10 @@ argToPair arg = splitAtChar '=' arg
             in (key, val)
 
 mapArgs :: [String] -> [(String, String)]
-mapArgs (a1:a2:args) | isFull a1 || isFull a2 = argToPair a1 : mapArgs (a2:args)             
-                     | otherwise = argToPair (a1 ++ "=" ++ a2) : mapArgs args
-    where isFull a = '=' `elem` a
+mapArgs (a1:a2:args) | wantsArg a1 && isArg a2 = argToPair (a1 ++ "=" ++ a2) : mapArgs args
+                     | otherwise = argToPair a1 : mapArgs (a2:args)
+    where wantsArg a = "--" `isPrefixOf` a && '=' `notElem` a
+          isArg a = not ("--" `isPrefixOf` a) && '=' `notElem` a
 mapArgs (arg:args) = argToPair arg : mapArgs args
 mapArgs [] = []
 
@@ -77,14 +67,6 @@ getEnvMap prefixes = getEnvironment >>= return . filterEnv prefixes
 
 getArgMap :: IO [(String, String)]
 getArgMap = getArgs >>= return . mapArgs
-
-getEnvName :: IO (Maybe String)
-getEnvName = let 
-        e = defaultEnvNameVar
-    in do
-        am <- getArgMap
-        em <- getEnvMap defaultEnvPrefixFilter
-        return $ lookup e am <|> lookup e em
 
 -- env readers
 jsonFileReader :: FilePath -> EnvReader ()
@@ -111,6 +93,25 @@ argsReader :: EnvReader ()
 argsReader = StateT $ unifyConfig $ \config -> do
     argMap <- getArgMap
     return $ M.fromList argMap
+
+defaultEnvNameVar :: String
+defaultEnvNameVar = "env"
+
+defaultEnvPrefixFilter :: [String]
+defaultEnvPrefixFilter = [
+      defaultEnvNameVar
+    , "hs_"
+    , "host"
+    , "port"
+    ]
+
+getEnvName :: IO (Maybe String)
+getEnvName = let
+        e = defaultEnvNameVar
+    in do
+        am <- getArgMap
+        em <- getEnvMap defaultEnvPrefixFilter
+        return $ lookup e am <|> lookup e em
 
 defaultReader :: EnvReader ()
 defaultReader = do

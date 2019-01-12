@@ -77,7 +77,8 @@ spec = do
         it "should read configuration from command-line args" $ do 
             config <- withArgs stubArgs (execStateT argsReader M.empty)
             config `shouldBe` M.fromList [
-                  ("foo", "")
+                  ("api-key", "foo-bar")
+                , ("foo", "")
                 , ("bar", "baz")
                 , ("quux", "")
                 , ("arg1", "val1")

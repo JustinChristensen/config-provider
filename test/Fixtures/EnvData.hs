@@ -27,4 +27,4 @@ funnyArgs = [
     ]
 
 stubArgs :: [String]
-stubArgs = nullaryArgs ++ funnyArgs
+stubArgs = ["--API-key", "foo-bar"] ++ nullaryArgs ++ funnyArgs
