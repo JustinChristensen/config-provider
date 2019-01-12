@@ -99,11 +99,11 @@ argsReader = StateT $ unifyConfig $ \config -> do
 
 defaultReader :: EnvReader ()
 defaultReader = do
-    jsonFileReader "config/app.json"
+    jsonFileReader "app.json"
     do
         mEnv <- liftIO getEnvName 
         case mEnv of
-            Just env -> jsonFileReader $ "config/app." ++ env ++ ".json"
+            Just env -> jsonFileReader $ "app." ++ env ++ ".json"
             _ -> return ()
     envReader defaultEnvPrefixFilter
     argsReader
