@@ -1,4 +1,7 @@
-module SpecHelper where
+module SpecHelper (
+    module SpecHelper,
+    module Fixtures.EnvData
+) where
 
 import Test.Hspec
 import System.Environment (setEnv, unsetEnv)
@@ -6,18 +9,7 @@ import Control.Exception (bracket_)
 import Control.Monad (unless)
 import qualified Data.Map as M
 import qualified Data.Set as S
-
-stubEnv :: [(String, String)]
-stubEnv = [
-      ("HS_VAULT_API_KEY", "vault-api-key")
-    , ("HS_DB_HOST", "127.0.0.1")
-    , ("HS_DB_PORT", "3306")
-    , ("HOST", "0.0.0.0")
-    , ("PORT", "3000")
-    , ("FOO", "bar")
-    , ("BAZ", "quux")
-    , ("TOO___MANY__UNDERSCORES", "111111")
-    ]
+import Fixtures.EnvData
 
 setEnvVars :: [(String, String)] -> IO ()
 setEnvVars = mapM_ $ uncurry setEnv

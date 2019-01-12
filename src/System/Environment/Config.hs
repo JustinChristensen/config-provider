@@ -10,6 +10,9 @@ module System.Environment.Config (
     , argsReader
     , defaultReader
     , getEnvName
+    , unifyConfig
+    , mapArgs
+    , argToPair
 ) where
 
 import System.Environment (lookupEnv, getArgs, getEnvironment)
@@ -40,17 +43,34 @@ unifyConfig f c1 = do
     c2 <- f c1
     return ((), M.union c2 c1)
 
-normalizeEnvKey :: (String, String) -> (String, String)
-normalizeEnvKey (k, v) = (normalize k, v) 
-    where
-        normalize ('_':xs) = '.' : normalize (dropWhile (== '_') xs)
-        normalize (c:xs) = toLower c : normalize xs
-        normalize [] = []
+normalizeEnvKey :: String -> String
+normalizeEnvKey ('_':'_':cs) = '.' : normalizeEnvKey (dropWhile (== '_') cs)
+normalizeEnvKey (c:cs) = toLower c : normalizeEnvKey cs
+normalizeEnvKey [] = []
 
 filterEnv :: [(String, String)] -> [String] -> [(String, String)]
-filterEnv env prefixes = map normalizeEnvKey $ filter keyMatchesPrefix env
+filterEnv env prefixes = map normalizeEnvKey' $ filter keyMatchesPrefix env
     where
+        normalizeEnvKey' (k, v) = (normalizeEnvKey k, v)
         keyMatchesPrefix (k, _) = any (`isPrefixOf` k) prefixes
+
+argToPair :: String -> (String, String)
+argToPair ('-':'-':arg) = argToPair arg
+argToPair arg = splitAtChar '=' arg
+    where 
+        splitAtChar c str = let 
+                key = normalizeEnvKey $ takeWhile (/= c) str
+                val = case dropWhile (/= c) str of
+                    "" -> ""
+                    cs -> tail cs
+            in (key, val)
+
+mapArgs :: [String] -> [(String, String)]
+mapArgs (a1:a2:args) | isFull a1 || isFull a2 = argToPair a1 : mapArgs (a2:args)             
+                     | otherwise = argToPair (a1 ++ "=" ++ a2) : mapArgs args
+    where isFull a = '=' `elem` a || not ("--" `isPrefixOf` a)
+mapArgs (arg:args) = argToPair arg : mapArgs args
+mapArgs [] = []
 
 jsonFileReader :: FilePath -> EnvReader ()
 jsonFileReader path = return ()
@@ -73,7 +93,9 @@ envReader prefixes = StateT $ unifyConfig $ \config -> do
     return $ M.fromList $ filterEnv env prefixes
 
 argsReader :: EnvReader ()
-argsReader = return ()
+argsReader = StateT $ unifyConfig $ \config -> do
+    args <- getArgs
+    return $ M.fromList $ mapArgs args
 
 defaultReader :: EnvReader ()
 defaultReader = do

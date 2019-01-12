@@ -2,6 +2,7 @@ module System.Environment.ConfigSpec (spec) where
 
 import SpecHelper
 import Test.Hspec
+import System.Environment (withArgs)
 import System.Environment.Config
 import qualified Data.Map as M
 import Control.Monad.State (execStateT)
@@ -12,7 +13,7 @@ import Control.Monad.State (execStateT)
 -- TODO: define API for deriving CLI usage string from config value type
 
 spec :: Spec
-spec = 
+spec = do
     -- describe "getEnvName" $ do
     --     it "should read the environment name from args" pending
     --     it "should read the environment name from env vars" pending
@@ -49,24 +50,46 @@ spec =
             it "should read configuration from environment variables" $ do
                 config <- execStateT (envReader ["HS_", "HOST", "PORT"]) M.empty
                 config `shouldHaveExactKeys` [
-                        "hs.vault.api.key"
-                    ,   "hs.db.host"
-                    ,   "hs.db.port"
-                    ,   "host"
-                    ,   "port"
+                      "hs.vault_api_key"
+                    , "hs.db.host"
+                    , "hs.db.port"
+                    , "host"
+                    , "port"
                     ]
             it "should filter out environment variables not listed in the prefix filter" $ do
                 config <- execStateT (envReader ["HS_"]) M.empty
-                config `shouldHaveKeys` ["hs.vault.api.key", "hs.db.host", "hs.db.port"]
+                config `shouldHaveKeys` ["hs.vault_api_key", "hs.db.host", "hs.db.port"]
                 config `shouldNotHaveKeys` ["foo" , "host" , "port"]
             it "should normalize environment variables to lowercase and dot separators" $ do
-                config <- execStateT (envReader ["HS_DB_", "TOO"]) M.empty
+                config <- execStateT (envReader ["HS__DB__", "TOO"]) M.empty
                 config `shouldHaveKeys` ["hs.db.host", "hs.db.port", "too.many.underscores"]
 
     -- https://github.com/aspnet/Extensions/blob/master/src/Configuration/Config.CommandLine/src/CommandLineConfigurationProvider.cs
-    -- describe "argsReader" $ do
-    --     it "should read configuration from command-line args" pending
-    --     it "should normalize environment variables to lowercase and dot separators" pending
+    describe "argsReader" $ do
+        it "should read configuration from command-line args" $ do 
+            config <- withArgs stubArgs (execStateT argsReader M.empty)
+            config `shouldBe` M.fromList [
+                  ("foo", "")
+                , ("bar", "baz")
+                , ("quux", "")
+                , ("arg1", "val1")
+                , ("db.host", "127.0.0.1")
+                , ("db.port", "5432")
+                ]
+        it "should handle nullary args" $ do
+            config <- withArgs nullaryArgs (execStateT argsReader M.empty)
+            config `shouldBe` M.fromList [
+                  ("foo", "")
+                , ("bar", "baz")
+                , ("quux", "")
+                ]
+        it "should normalize argument keys to lowercase and dot separators" $ do
+            config <- withArgs funnyArgs (execStateT argsReader M.empty)
+            config `shouldBe` M.fromList [
+                  ("arg1", "val1")
+                , ("db.host", "127.0.0.1")
+                , ("db.port", "5432")
+                ]
 
     -- describe "defaultReader" $ do
     --     it "args should override env" pending
