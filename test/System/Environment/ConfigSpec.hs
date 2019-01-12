@@ -7,17 +7,26 @@ import System.Environment.Config
 import qualified Data.Map as M
 import Control.Monad.State (execStateT)
 
--- TODO: define required API for file readers
--- TODO: define API for the consumer to define the type of config value
--- TODO: define type annotations for logical requirements
--- TODO: define API for deriving CLI usage string from config value type
+-- WARNING: 
+-- The tests herein are highly dependent on the state of the environment
+-- In particular, they depend on the fixtures located in the Fixtures/ subdirectory of test
+-- and on the environment variables and arguments passed while executing the test suite itself
+-- Running the test executable with extra arguments like --env or environment variables like ENV
+-- WILL lead to test failures. 
 
 spec :: Spec
 spec = do
-    -- describe "getEnvName" $ do
-    --     it "should read the environment name from args" pending
-    --     it "should read the environment name from env vars" pending
-    --     it "should prefer args to env vars" pending
+    describe "getEnvName" $ 
+        it "should prefer args to env vars" $ do
+            e1 <- withEnv [("ENV", "development")] getEnvName
+            e2 <- withArgs ["--env", "production"] getEnvName
+            e3 <- withArgs ["--ENV", "staging"] $ withEnv [("ENV", "development")] getEnvName
+            e4 <- getEnvName
+            e1 `shouldBe` Just "development"
+            e2 `shouldBe` Just "production"
+            e3 `shouldBe` Just "staging"
+            e4 `shouldBe` Nothing
+            
 
     -- https://github.com/aspnet/Extensions/blob/master/src/Configuration/Config.FileExtensions/src/FileConfigurationSource.cs
     -- describe "jsonFileReader" $ do
@@ -45,24 +54,23 @@ spec = do
     --     it "should merge with the upstream configuration map" pending
 
     -- https://github.com/aspnet/Extensions/blob/master/src/Configuration/Config.EnvironmentVariables/src/EnvironmentVariablesConfigurationProvider.cs
-    around_ stubEnvVars $
-        describe "envReader" $ do
-            it "should read configuration from environment variables" $ do
-                config <- execStateT (envReader ["HS_", "HOST", "PORT"]) M.empty
-                config `shouldHaveExactKeys` [
-                      "hs.vault_api_key"
-                    , "hs.db.host"
-                    , "hs.db.port"
-                    , "host"
-                    , "port"
-                    ]
-            it "should filter out environment variables not listed in the prefix filter" $ do
-                config <- execStateT (envReader ["HS_"]) M.empty
-                config `shouldHaveKeys` ["hs.vault_api_key", "hs.db.host", "hs.db.port"]
-                config `shouldNotHaveKeys` ["foo" , "host" , "port"]
-            it "should normalize environment variables to lowercase and dot separators" $ do
-                config <- execStateT (envReader ["HS__DB__", "TOO"]) M.empty
-                config `shouldHaveKeys` ["hs.db.host", "hs.db.port", "too.many.underscores"]
+    describe "envReader" $ do
+        it "should read configuration from environment variables" $ do
+            config <- withStubEnv $ execStateT (envReader ["HS_", "HOST", "PORT"]) M.empty
+            config `shouldHaveExactKeys` [
+                    "hs.vault_api_key"
+                , "hs.db.host"
+                , "hs.db.port"
+                , "host"
+                , "port"
+                ]
+        it "should filter out environment variables not listed in the prefix filter" $ do
+            config <- withStubEnv $ execStateT (envReader ["HS_"]) M.empty
+            config `shouldHaveKeys` ["hs.vault_api_key", "hs.db.host", "hs.db.port"]
+            config `shouldNotHaveKeys` ["foo" , "host" , "port"]
+        it "should normalize environment variables to lowercase and dot separators" $ do
+            config <- withStubEnv $ execStateT (envReader ["HS__DB__", "TOO"]) M.empty
+            config `shouldHaveKeys` ["hs.db.host", "hs.db.port", "too.many.underscores"]
 
     -- https://github.com/aspnet/Extensions/blob/master/src/Configuration/Config.CommandLine/src/CommandLineConfigurationProvider.cs
     describe "argsReader" $ do

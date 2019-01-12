@@ -19,24 +19,24 @@ import System.Environment (lookupEnv, getArgs, getEnvironment)
 import Control.Monad.State (StateT(..), execStateT, liftIO)
 import Data.Char (toLower)
 import Data.List (isPrefixOf)
+import Control.Applicative ((<|>))
 import qualified Data.Map as M
 
 type Config = M.Map String String
 type EnvReader = StateT Config IO
 
+lcase = map toLower
+
 defaultEnvNameVar :: String
-defaultEnvNameVar = "ENV"
+defaultEnvNameVar = "env"
 
 defaultEnvPrefixFilter :: [String]
 defaultEnvPrefixFilter = [
       defaultEnvNameVar
-    , "HS_"
-    , "HOST"
-    , "PORT"
+    , "hs_"
+    , "host"
+    , "port"
     ]
-
-getEnvName :: IO (Maybe String)
-getEnvName = lookupEnv defaultEnvNameVar
 
 unifyConfig :: (Config -> IO Config) -> Config -> IO ((), Config) 
 unifyConfig f c1 = do
@@ -48,11 +48,11 @@ normalizeEnvKey ('_':'_':cs) = '.' : normalizeEnvKey (dropWhile (== '_') cs)
 normalizeEnvKey (c:cs) = toLower c : normalizeEnvKey cs
 normalizeEnvKey [] = []
 
-filterEnv :: [(String, String)] -> [String] -> [(String, String)]
-filterEnv env prefixes = map normalizeEnvKey' $ filter keyMatchesPrefix env
+filterEnv :: [String] -> [(String, String)] -> [(String, String)]
+filterEnv prefixes env = map normalizeEnvKey' $ filter keyMatchesPrefix env
     where
         normalizeEnvKey' (k, v) = (normalizeEnvKey k, v)
-        keyMatchesPrefix (k, _) = any (`isPrefixOf` k) prefixes
+        keyMatchesPrefix (k, _) = any ((`isPrefixOf` lcase k) . lcase) prefixes
 
 argToPair :: String -> (String, String)
 argToPair ('-':'-':arg) = argToPair arg
@@ -68,10 +68,25 @@ argToPair arg = splitAtChar '=' arg
 mapArgs :: [String] -> [(String, String)]
 mapArgs (a1:a2:args) | isFull a1 || isFull a2 = argToPair a1 : mapArgs (a2:args)             
                      | otherwise = argToPair (a1 ++ "=" ++ a2) : mapArgs args
-    where isFull a = '=' `elem` a || not ("--" `isPrefixOf` a)
+    where isFull a = '=' `elem` a
 mapArgs (arg:args) = argToPair arg : mapArgs args
 mapArgs [] = []
 
+getEnvMap :: [String] -> IO [(String, String)]
+getEnvMap prefixes = getEnvironment >>= return . filterEnv prefixes
+
+getArgMap :: IO [(String, String)]
+getArgMap = getArgs >>= return . mapArgs
+
+getEnvName :: IO (Maybe String)
+getEnvName = let 
+        e = defaultEnvNameVar
+    in do
+        am <- getArgMap
+        em <- getEnvMap defaultEnvPrefixFilter
+        return $ lookup e am <|> lookup e em
+
+-- env readers
 jsonFileReader :: FilePath -> EnvReader ()
 jsonFileReader path = return ()
 
@@ -89,19 +104,19 @@ remoteReader action = return ()
 
 envReader :: [String] -> EnvReader ()
 envReader prefixes = StateT $ unifyConfig $ \config -> do
-    env <- getEnvironment
-    return $ M.fromList $ filterEnv env prefixes
+    envMap <- getEnvMap prefixes
+    return $ M.fromList envMap
 
 argsReader :: EnvReader ()
 argsReader = StateT $ unifyConfig $ \config -> do
-    args <- getArgs
-    return $ M.fromList $ mapArgs args
+    argMap <- getArgMap
+    return $ M.fromList argMap
 
 defaultReader :: EnvReader ()
 defaultReader = do
     jsonFileReader "app.json"
     do
-        mEnv <- liftIO getEnvName 
+        mEnv <- liftIO getEnvName
         case mEnv of
             Just env -> jsonFileReader $ "app." ++ env ++ ".json"
             _ -> return ()

@@ -17,8 +17,11 @@ setEnvVars = mapM_ $ uncurry setEnv
 unsetEnvVars :: [(String, String)] -> IO ()
 unsetEnvVars = mapM_ $ unsetEnv . fst
 
-stubEnvVars :: IO () -> IO ()
-stubEnvVars = bracket_ (setEnvVars stubEnv) (unsetEnvVars stubEnv)
+withEnv :: [(String, String)] -> IO a -> IO a
+withEnv env = bracket_ (setEnvVars env) (unsetEnvVars env)
+
+withStubEnv :: IO a -> IO a
+withStubEnv = withEnv stubEnv 
 
 shouldHaveKeys :: (Show k, Ord k) => M.Map k v -> [k] -> Expectation
 actual `shouldHaveKeys` expected = let
