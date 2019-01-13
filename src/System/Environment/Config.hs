@@ -1,5 +1,7 @@
+{-# LANGUAGE DeriveGeneric #-}
 module System.Environment.Config (
-      getConfig
+      Value(..)
+    , getConfig
     , getConfigDefault
     , jsonFileReader
     , xmlFileReader
@@ -20,9 +22,19 @@ import Control.Monad.State (StateT(..), execStateT, liftIO)
 import Data.Char (toLower)
 import Data.List (isPrefixOf)
 import Control.Applicative ((<|>))
+import GHC.Generics
+import Data.Scientific (Scientific)
+import qualified Data.Text as T
 import qualified Data.Map as M
+import qualified Data.Aeson as A
 
-type Config = M.Map String String
+data Value = String T.Text
+           | Number Scientific
+           | Bool Bool
+           | Null
+             deriving (Eq, Read, Show, Generic)
+
+type Config = M.Map String Value
 type EnvReader = StateT Config IO
 
 lcase = map toLower
@@ -37,24 +49,27 @@ normalizeEnvKey ('_':'_':cs) = '.' : normalizeEnvKey (dropWhile (== '_') cs)
 normalizeEnvKey (c:cs) = toLower c : normalizeEnvKey cs
 normalizeEnvKey [] = []
 
-filterEnv :: [String] -> [(String, String)] -> [(String, String)]
+toVal :: String -> Value
+toVal v = if null v then Bool True else String (T.pack v)
+
+filterEnv :: [String] -> [(String, String)] -> [(String, Value)]
 filterEnv prefixes env = map normalizeEnvKey' $ filter keyMatchesPrefix env
     where
-        normalizeEnvKey' (k, v) = (normalizeEnvKey k, v)
+        normalizeEnvKey' (k, v) = (normalizeEnvKey k, toVal v)
         keyMatchesPrefix (k, _) = any ((`isPrefixOf` lcase k) . lcase) prefixes
 
-argToPair :: String -> (String, String)
+argToPair :: String -> (String, Value)
 argToPair ('-':'-':arg) = argToPair arg
 argToPair arg = splitAtChar '=' arg
     where
         splitAtChar c str = let
                 key = normalizeEnvKey $ takeWhile (/= c) str
                 val = case dropWhile (/= c) str of
-                    "" -> ""
-                    cs -> tail cs
+                    "" -> toVal ""
+                    cs -> toVal $ tail cs
             in (key, val)
 
-mapArgs :: [String] -> [(String, String)]
+mapArgs :: [String] -> [(String, Value)]
 mapArgs (a1:a2:args) | wantsArg a1 && isArg a2 = argToPair (a1 ++ "=" ++ a2) : mapArgs args
                      | otherwise = argToPair a1 : mapArgs (a2:args)
     where wantsArg a = "--" `isPrefixOf` a && '=' `notElem` a
@@ -62,15 +77,20 @@ mapArgs (a1:a2:args) | wantsArg a1 && isArg a2 = argToPair (a1 ++ "=" ++ a2) : m
 mapArgs (arg:args) = argToPair arg : mapArgs args
 mapArgs [] = []
 
-getEnvMap :: [String] -> IO [(String, String)]
+-- instance A.FromJSON (String, Value) where
+
+getEnvMap :: [String] -> IO [(String, Value)]
 getEnvMap prefixes = getEnvironment >>= return . filterEnv prefixes
 
-getArgMap :: IO [(String, String)]
+getArgMap :: IO [(String, Value)]
 getArgMap = getArgs >>= return . mapArgs
 
 -- env readers
 jsonFileReader :: FilePath -> EnvReader ()
-jsonFileReader path = return ()
+jsonFileReader path = StateT $ unifyConfig $ \config -> 
+    return config
+    -- mValue <- A.decodeFileStrict' path 
+    -- return $ maybe config (M.fromList . mapJSONValue) (mValue :: Maybe A.Value)
 
 xmlFileReader :: FilePath -> EnvReader ()
 xmlFileReader path = return ()
@@ -105,7 +125,7 @@ defaultEnvPrefixFilter = [
     , "port"
     ]
 
-getEnvName :: IO (Maybe String)
+getEnvName :: IO (Maybe Value)
 getEnvName = let
         e = defaultEnvNameVar
     in do
@@ -113,14 +133,15 @@ getEnvName = let
         em <- getEnvMap defaultEnvPrefixFilter
         return $ lookup e am <|> lookup e em
 
+maybeEnvFileReader :: Maybe Value -> EnvReader ()
+maybeEnvFileReader (Just (String env)) = jsonFileReader $ "app." ++ T.unpack env ++ ".json"
+maybeEnvFileReader Nothing = return ()
+maybeEnvFileReader _ = return ()
+
 defaultReader :: EnvReader ()
 defaultReader = do
     jsonFileReader "app.json"
-    do
-        mEnv <- liftIO getEnvName
-        case mEnv of
-            Just env -> jsonFileReader $ "app." ++ env ++ ".json"
-            _ -> return ()
+    liftIO getEnvName >>= maybeEnvFileReader
     envReader defaultEnvPrefixFilter
     argsReader
 

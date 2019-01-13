@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module System.Environment.ConfigSpec (spec) where
 
 import SpecHelper
@@ -22,11 +23,10 @@ spec = do
             e2 <- withArgs ["--env", "production"] getEnvName
             e3 <- withArgs ["--ENV", "staging"] $ withEnv [("ENV", "development")] getEnvName
             e4 <- getEnvName
-            e1 `shouldBe` Just "development"
-            e2 `shouldBe` Just "production"
-            e3 `shouldBe` Just "staging"
+            e1 `shouldBe` Just (String "development")
+            e2 `shouldBe` Just (String "production")
+            e3 `shouldBe` Just (String "staging")
             e4 `shouldBe` Nothing
-            
 
     -- https://github.com/aspnet/Extensions/blob/master/src/Configuration/Config.FileExtensions/src/FileConfigurationSource.cs
     -- describe "jsonFileReader" $ do
@@ -58,7 +58,7 @@ spec = do
         it "should read configuration from environment variables" $ do
             config <- withStubEnv $ execStateT (envReader ["HS_", "HOST", "PORT"]) M.empty
             config `shouldHaveExactKeys` [
-                    "hs.vault_api_key"
+                  "hs.vault_api_key"
                 , "hs.db.host"
                 , "hs.db.port"
                 , "host"
@@ -77,27 +77,27 @@ spec = do
         it "should read configuration from command-line args" $ do 
             config <- withArgs stubArgs (execStateT argsReader M.empty)
             config `shouldBe` M.fromList [
-                  ("api-key", "foo-bar")
-                , ("foo", "")
-                , ("bar", "baz")
-                , ("quux", "")
-                , ("arg1", "val1")
-                , ("db.host", "127.0.0.1")
-                , ("db.port", "5432")
+                  ("api-key", String "foo-bar")
+                , ("foo", Bool True)
+                , ("bar", String "baz")
+                , ("quux", Bool True)
+                , ("arg1", String "val1")
+                , ("db.host", String "127.0.0.1")
+                , ("db.port", String "5432")
                 ]
         it "should handle nullary args" $ do
             config <- withArgs nullaryArgs (execStateT argsReader M.empty)
             config `shouldBe` M.fromList [
-                  ("foo", "")
-                , ("bar", "baz")
-                , ("quux", "")
+                  ("foo", Bool True)
+                , ("bar", String "baz")
+                , ("quux", Bool True)
                 ]
         it "should normalize argument keys to lowercase and dot separators" $ do
             config <- withArgs funnyArgs (execStateT argsReader M.empty)
             config `shouldBe` M.fromList [
-                  ("arg1", "val1")
-                , ("db.host", "127.0.0.1")
-                , ("db.port", "5432")
+                  ("arg1", String "val1")
+                , ("db.host", String "127.0.0.1")
+                , ("db.port", String "5432")
                 ]
 
     -- describe "defaultReader" $ do
