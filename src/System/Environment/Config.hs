@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 module System.Environment.Config (
       Value(..)
@@ -24,20 +25,53 @@ import Data.List (isPrefixOf)
 import Control.Applicative ((<|>))
 import GHC.Generics
 import Data.Scientific (Scientific)
+import Data.Aeson.Types (typeMismatch)
+import qualified Data.Vector as V
 import qualified Data.Text as T
 import qualified Data.Map as M
 import qualified Data.Aeson as A
+import qualified Data.HashMap.Strict as H
 
-data Value = String T.Text
-           | Number Scientific
-           | Bool Bool
+-- TODO: test the performance impact of strictness here
+data Value = String !T.Text
+           | Number !Scientific
+           | Bool !Bool
            | Null
              deriving (Eq, Read, Show, Generic)
 
 type Config = M.Map String Value
 type EnvReader = StateT Config IO
 
-lcase = map toLower
+instance A.FromJSON Value where
+    parseJSON s@(A.String _) = return $ mapJsonVal s
+    parseJSON n@(A.Number _) = return $ mapJsonVal n
+    parseJSON b@(A.Bool _) = return $ mapJsonVal b
+    parseJSON n@A.Null = return $ mapJsonVal n
+    parseJSON invalid = typeMismatch "Value" invalid
+
+newtype FlatValueMap = FlatValueMap { runFlatValueMap :: [(String, Value)] }
+    deriving (Eq, Read, Show)
+
+instance A.FromJSON FlatValueMap where
+    parseJSON o@(A.Object _) = return $ FlatValueMap $ flatten "" (Right "") o []
+    parseJSON a@(A.Array _) = return $ FlatValueMap $ flatten "" (Right "") a []
+    parseJSON invalid = typeMismatch "[(String, Value)]" invalid
+
+mapJsonVal :: A.Value -> Value
+mapJsonVal (A.String s) = String s
+mapJsonVal (A.Number n) = Number n
+mapJsonVal (A.Bool b) = Bool b
+mapJsonVal A.Null = Null
+mapJsonVal _ = error "use parseJSON to convert aeson arrays and objects"
+
+flatten :: String -> Either Int T.Text -> A.Value -> [(String, Value)] -> [(String, Value)]
+flatten path key val acc = case val of
+        A.Object o -> H.foldrWithKey (flatten (dot path key) . Right) acc o
+        A.Array a -> V.ifoldr (flatten (dot path key) . Left) acc a
+        v -> (dot path key, mapJsonVal v) : acc
+    where 
+        dot p (Left k) = p ++ '[' : show k ++ "]"
+        dot p (Right k) = p ++ '.' : T.unpack k
 
 unifyConfig :: (Config -> IO Config) -> Config -> IO ((), Config)
 unifyConfig f c1 = do
@@ -51,6 +85,9 @@ normalizeEnvKey [] = []
 
 toVal :: String -> Value
 toVal v = if null v then Bool True else String (T.pack v)
+
+lcase :: String -> String
+lcase = map toLower
 
 filterEnv :: [String] -> [(String, String)] -> [(String, Value)]
 filterEnv prefixes env = map normalizeEnvKey' $ filter keyMatchesPrefix env
@@ -77,8 +114,6 @@ mapArgs (a1:a2:args) | wantsArg a1 && isArg a2 = argToPair (a1 ++ "=" ++ a2) : m
 mapArgs (arg:args) = argToPair arg : mapArgs args
 mapArgs [] = []
 
--- instance A.FromJSON (String, Value) where
-
 getEnvMap :: [String] -> IO [(String, Value)]
 getEnvMap prefixes = getEnvironment >>= return . filterEnv prefixes
 
@@ -87,10 +122,9 @@ getArgMap = getArgs >>= return . mapArgs
 
 -- env readers
 jsonFileReader :: FilePath -> EnvReader ()
-jsonFileReader path = StateT $ unifyConfig $ \config -> 
-    return config
-    -- mValue <- A.decodeFileStrict' path 
-    -- return $ maybe config (M.fromList . mapJSONValue) (mValue :: Maybe A.Value)
+jsonFileReader path = StateT $ unifyConfig $ \config -> do
+    mValue <- A.decodeFileStrict' path 
+    return $ maybe config (M.fromList . runFlatValueMap) (mValue :: Maybe FlatValueMap)
 
 xmlFileReader :: FilePath -> EnvReader ()
 xmlFileReader path = return ()
