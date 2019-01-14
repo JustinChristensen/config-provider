@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 module System.Environment.Config (
-      Value(..)
+      EnvReader
+    , Value(..)
     , getConfig
     , getConfigDefault
     , jsonFileReader
@@ -13,9 +14,6 @@ module System.Environment.Config (
     , argsReader
     , defaultReader
     , getEnvName
-    , unifyConfig
-    , mapArgs
-    , argToPair
 ) where
 
 import System.Environment (lookupEnv, getArgs, getEnvironment)
@@ -24,17 +22,19 @@ import Data.Char (toLower)
 import Data.List (isPrefixOf)
 import Control.Applicative ((<|>))
 import GHC.Generics
-import Data.Scientific (Scientific)
+import Data.Scientific (Scientific, floatingOrInteger)
 import Data.Aeson.Types (typeMismatch)
 import qualified Data.Vector as V
 import qualified Data.Text as T
 import qualified Data.Map as M
 import qualified Data.Aeson as A
+import qualified Data.Yaml as YL
 import qualified Data.HashMap.Strict as H
 
 -- TODO: test the performance impact of strictness here
 data Value = String !T.Text
-           | Number !Scientific
+           | Double !Double
+           | Integer !Integer
            | Bool !Bool
            | Null
              deriving (Eq, Read, Show, Generic)
@@ -59,7 +59,9 @@ instance A.FromJSON FlatValueMap where
 
 mapJsonVal :: A.Value -> Value
 mapJsonVal (A.String s) = String s
-mapJsonVal (A.Number n) = Number n
+mapJsonVal (A.Number n) = case floatingOrInteger n of
+    Left r -> Double r
+    Right i -> Integer i
 mapJsonVal (A.Bool b) = Bool b
 mapJsonVal A.Null = Null
 mapJsonVal _ = error "use parseJSON to convert aeson arrays and objects"
@@ -127,11 +129,15 @@ jsonFileReader path = StateT $ unifyConfig $ \config -> do
     mValue <- A.decodeFileStrict' path 
     return $ maybe config (M.fromList . runFlatValueMap) (mValue :: Maybe FlatValueMap)
 
+yamlFileReader :: FilePath -> EnvReader ()
+yamlFileReader path = StateT $ unifyConfig $ \config -> do
+    eValue <- YL.decodeFileEither path
+    return $ case (eValue :: Either YL.ParseException FlatValueMap) of 
+        Right vm -> M.fromList $ runFlatValueMap vm
+        Left _ -> config -- for now we'll ignore exceptions, TODO: debate error handling API
+
 xmlFileReader :: FilePath -> EnvReader ()
 xmlFileReader path = return ()
-
-yamlFileReader :: FilePath -> EnvReader ()
-yamlFileReader path = return ()
 
 iniFileReader :: FilePath -> EnvReader ()
 iniFileReader path = return ()

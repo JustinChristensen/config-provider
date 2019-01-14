@@ -16,5 +16,6 @@
         "tmp1",
         "tmp2",
         "tmp3"
-    ]
+    ],
+    "key with spaces": 9999.999
 }

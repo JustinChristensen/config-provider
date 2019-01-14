@@ -30,41 +30,37 @@ spec = do
 
     -- https://github.com/aspnet/Extensions/blob/master/src/Configuration/Config.FileExtensions/src/FileConfigurationSource.cs
     describe "jsonFileReader" $ do
-        it "should read configuration from a json file" $ do
-            config <- execStateT (jsonFileReader "test/Fixtures/config.json") M.empty
-            config `shouldHaveExactKeys` [
-                  "env"
-                , "host"
-                , "port"
-                , "db.host"
-                , "db.port"
-                , "db.policies.timeout"
-                , "vault.api_key"
-                , "data.dirs[0]"
-                , "data.dirs[1]"
-                , "data.dirs[2]"
-                ]
+        it "should read configuration from a json file" $ 
+            checkKeys jsonFixtureReader baseFileKeys
         it "should merge with the upstream configuration map" $ let 
-                previousConfig = M.fromList [
-                    ("HOST", String "0.0.0.0"),
+                previousConfig = [
+                    ("host", String "0.0.0.0"),
                     ("db.host", String "db.i.foocorp.net"),
                     ("log_level", String "trace")]
-            in do
-                config <- execStateT (jsonFileReader "test/Fixtures/config.json") previousConfig
-                let host = M.lookup "host" config
-                let dbHost = M.lookup "db.host" config
-                let logLevel = M.lookup "log_level" config
-                host `shouldBe` Just (String "192.168.5.200")
-                dbHost `shouldBe` Just (String "10.10.10.11")
-                logLevel `shouldBe` Just (String "trace")
+                nextConfig = [ 
+                    ("host", String "192.168.5.200"),
+                    ("db.host", String "10.10.10.11"),
+                    ("data.dirs[1]", String "tmp2"),
+                    ("log_level", String "trace")]
+            in checkMerged previousConfig jsonFixtureReader nextConfig
+
+    describe "yamlFileReader" $ do
+        it "should read configuration from a yaml file" $ 
+            checkKeys (yamlFileReader "test/Fixtures/config.yaml") baseFileKeys
+        it "should merge with the upstream configuration map" $ let 
+                previousConfig = [
+                    ("host", String "0.0.0.0"),
+                    ("db.host", String "db.i.foocorp.net"),
+                    ("log_level", String "trace")]
+                nextConfig = [ 
+                    ("host", String "127.0.0.1"),
+                    ("db.host", String "172.16.9.44"),
+                    ("data.dirs[1]", String "tmp2"),
+                    ("log_level", String "trace")]
+            in checkMerged previousConfig yamlFixtureReader nextConfig
 
     -- describe "xmlFileReader" $ do
     --     it "should read configuration from an xml file" pending
-    --     it "should flatten the structure into the configuration map" pending
-    --     it "should merge with the upstream configuration map" pending
-
-    -- describe "yamlFileReader" $ do
-    --     it "should read configuration from a yaml file" pending
     --     it "should flatten the structure into the configuration map" pending
     --     it "should merge with the upstream configuration map" pending
 

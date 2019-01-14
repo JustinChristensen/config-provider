@@ -1,0 +1,16 @@
+---
+env: qa
+host: '127.0.0.1'
+port: 80
+db: 
+    host: '172.16.9.44'
+    port: 23000
+    policies:
+        TIMEOUT: 10000
+vault:
+    api_key: 'yaml-file-vault-api-key'
+data.dirs:
+  - tmp1
+  - tmp2
+  - tmp3
+key with spaces: 43222.999

@@ -5,11 +5,19 @@ module SpecHelper (
 
 import Test.Hspec
 import System.Environment (setEnv, unsetEnv)
+import System.Environment.Config
 import Control.Exception (bracket_)
 import Control.Monad (unless)
+import Control.Monad.State (execStateT)
+import Fixtures.EnvData
 import qualified Data.Map as M
 import qualified Data.Set as S
-import Fixtures.EnvData
+
+jsonFixtureReader :: EnvReader ()
+jsonFixtureReader = jsonFileReader "test/Fixtures/config.json"
+
+yamlFixtureReader :: EnvReader ()
+yamlFixtureReader = yamlFileReader "test/Fixtures/config.yaml"
 
 setEnvVars :: [(String, String)] -> IO ()
 setEnvVars = mapM_ $ uncurry setEnv
@@ -40,3 +48,30 @@ actual `shouldNotHaveKeys` expected = let
 shouldHaveExactKeys :: (Show k, Ord k) => M.Map k v -> [k] -> Expectation
 actual `shouldHaveExactKeys` expected = 
     M.keys actual `shouldMatchList` expected
+
+checkKeys :: EnvReader () -> [String] -> Expectation
+checkKeys reader keys = do
+    config <- execStateT reader M.empty
+    config `shouldHaveExactKeys` keys
+
+baseFileKeys :: [String]
+baseFileKeys = [
+       "env"
+    , "host"
+    , "port"
+    , "db.host"
+    , "db.port"
+    , "db.policies.timeout"
+    , "vault.api_key"
+    , "data.dirs[0]"
+    , "data.dirs[1]"
+    , "data.dirs[2]"
+    , "key with spaces"
+    ]
+
+checkMerged :: [(String, Value)] -> EnvReader () -> [(String, Value)] -> Expectation
+checkMerged previousConfig reader nextConfig = do
+        config <- execStateT reader $ M.fromList previousConfig
+        mapM_ (checkMergedValue config) nextConfig
+    where 
+        checkMergedValue config (k, v) = M.lookup k config `shouldBe` Just v
