@@ -68,8 +68,9 @@ flatten :: String -> Either Int T.Text -> A.Value -> [(String, Value)] -> [(Stri
 flatten path key val acc = case val of
         A.Object o -> H.foldrWithKey (flatten (dot path key) . Right) acc o
         A.Array a -> V.ifoldr (flatten (dot path key) . Left) acc a
-        v -> (dot path key, mapJsonVal v) : acc
+        v -> (lcase $ dot path key, mapJsonVal v) : acc
     where 
+        dot "" (Right k) = T.unpack k
         dot p (Left k) = p ++ '[' : show k ++ "]"
         dot p (Right k) = p ++ '.' : T.unpack k
 
