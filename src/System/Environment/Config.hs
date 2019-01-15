@@ -18,7 +18,7 @@ module System.Environment.Config (
 
 import System.Environment (lookupEnv, getArgs, getEnvironment)
 import Control.Monad.State (StateT(..), execStateT, liftIO)
-import Data.Char (toLower)
+import Data.Char (toLower, isSpace)
 import Data.List (isPrefixOf)
 import Control.Applicative ((<|>))
 import GHC.Generics
@@ -26,6 +26,8 @@ import Data.Scientific (Scientific, floatingOrInteger)
 import Data.Aeson.Types (typeMismatch)
 import Text.Read (readMaybe)
 import Data.Maybe (fromJust)
+import qualified Data.ByteString.Char8 as B
+import qualified Xeno.DOM as X
 import qualified Data.Vector as V
 import qualified Data.Text as T
 import qualified Data.Map as M
@@ -123,18 +125,39 @@ mapArgs (a1:a2:args) | wantsArg a1 && isArg a2 = argToPair (a1 ++ "=" ++ a2) : m
 mapArgs (arg:args) = argToPair arg : mapArgs args
 mapArgs [] = []
 
+parseVal :: String -> Value
+parseVal v | lcase v == "true" = Bool True
+           | lcase v == "false" = Bool False
+           | otherwise = maybe (String $ T.pack v) fromJust $ tryInteger v <|> tryDouble v
+    where 
+        tryInteger v = (readMaybe v :: Maybe Integer) >>= \v -> return $ Just (Integer v)
+        tryDouble v = (readMaybe v :: Maybe Double) >>= \v -> return $ Just (Double v)
+
 mapIniToConfig :: I.Ini -> [(String, Value)]
 mapIniToConfig ini = let globals = toPair <$> I.iniGlobals ini
-                     in H.foldrWithKey flatten' globals $ I.iniSections ini
+                     in H.foldrWithKey flattenIni globals $ I.iniSections ini
     where
         toPair (k, v) = (lcase $ T.unpack k, parseVal $ T.unpack v)
         dot p (k, v) = (T.concat [p, ".", k], v)
-        flatten' section pairs acc = foldr ((:) . toPair . dot section) acc pairs
-        tryInteger v = (readMaybe v :: Maybe Integer) >>= \v -> return $ Just (Integer v)
-        tryDouble v = (readMaybe v :: Maybe Double) >>= \v -> return $ Just (Double v)
-        parseVal v | lcase v == "true" = Bool True
-                   | lcase v == "false" = Bool False
-                   | otherwise = maybe (String $ T.pack v) fromJust $ tryInteger v <|> tryDouble v
+        flattenIni section pairs acc = foldr ((:) . toPair . dot section) acc pairs
+
+mapXmlToConfig :: X.Node -> [(String, Value)]
+mapXmlToConfig n = flattenNode "" n []
+    where 
+        dot "" k = k
+        dot p k = B.concat [p, ".", k]
+        flattenNode path node acc = let
+                path' = dot path (X.name node)
+                attrPairs = flattenAttrs path' (X.attributes node) acc
+            in flattenContents path' (X.contents node) attrPairs
+        flattenAttrs path attrs acc = foldr (flattenAttr path) acc attrs
+        flattenAttr path (k, v) acc = (lcase $ B.unpack $ dot path k, parseVal $ B.unpack v) : acc
+        flattenContents path contents acc = foldr (flattenContent path) acc contents
+        flattenContent path content acc = case content of
+            X.Element node -> flattenNode path node acc
+            X.Text text -> if B.all isSpace text then acc
+                else flattenAttr "" (path, text) acc
+            X.CData cdata -> flattenAttr "" (path, cdata) acc
 
 getEnvMap :: [String] -> IO [(String, Value)]
 getEnvMap prefixes = getEnvironment >>= return . filterEnv prefixes
@@ -156,7 +179,11 @@ yamlFileReader path = StateT $ unifyConfig $ \config -> do
         Left _ -> config -- for now we'll ignore exceptions, TODO: debate error handling API
 
 xmlFileReader :: FilePath -> EnvReader ()
-xmlFileReader path = return ()
+xmlFileReader path = StateT $ unifyConfig $ \config -> do
+    eNode <- B.readFile path >>= return . X.parse
+    return $ case eNode of 
+        Right node -> M.fromList $ mapXmlToConfig node
+        Left _ -> config -- again, ignoring exceptions
 
 iniFileReader :: FilePath -> EnvReader ()
 iniFileReader path = StateT $ unifyConfig $ \config -> do

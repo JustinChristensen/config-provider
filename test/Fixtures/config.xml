@@ -1,0 +1,12 @@
+<settings key1="true" key2="3.1459">
+    <Data.Setting key1="-3154" key2="local">
+        <DefaultConnection>
+            <Connection.String>Test.Connection.String</Connection.String>
+            <Provider>SqlClient</Provider>
+        </DefaultConnection>
+        <Inventory>
+            <ConnectionString>AnotherTestConnectionString</ConnectionString>
+            <Provider>MySql</Provider>
+        </Inventory>
+    </Data.Setting>
+</settings>

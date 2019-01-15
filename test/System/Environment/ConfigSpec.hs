@@ -64,7 +64,7 @@ spec = do
 
     -- describe "xmlFileReader" $ do
     --     it "should read configuration from an xml file" pending
-    --     it "should flatten the structure into the configuration map" pending
+    --     it "should filter out whitespace text nodes" pending
     --     it "should merge with the upstream configuration map" pending
 
     describe "iniFileReader" $ do
