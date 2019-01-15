@@ -24,10 +24,13 @@ import Control.Applicative ((<|>))
 import GHC.Generics
 import Data.Scientific (Scientific, floatingOrInteger)
 import Data.Aeson.Types (typeMismatch)
+import Text.Read (readMaybe)
+import Data.Maybe (fromJust)
 import qualified Data.Vector as V
 import qualified Data.Text as T
 import qualified Data.Map as M
 import qualified Data.Aeson as A
+import qualified Data.Ini as I
 import qualified Data.Yaml as YL
 import qualified Data.HashMap.Strict as H
 
@@ -65,6 +68,9 @@ mapJsonVal (A.Number n) = case floatingOrInteger n of
 mapJsonVal (A.Bool b) = Bool b
 mapJsonVal A.Null = Null
 mapJsonVal _ = error "use parseJSON to convert aeson arrays and objects"
+
+vmToConfig :: FlatValueMap -> Config
+vmToConfig = M.fromList . runFlatValueMap
 
 flatten :: String -> Either Int T.Text -> A.Value -> [(String, Value)] -> [(String, Value)]
 flatten path key val acc = case val of
@@ -117,6 +123,19 @@ mapArgs (a1:a2:args) | wantsArg a1 && isArg a2 = argToPair (a1 ++ "=" ++ a2) : m
 mapArgs (arg:args) = argToPair arg : mapArgs args
 mapArgs [] = []
 
+mapIniToConfig :: I.Ini -> [(String, Value)]
+mapIniToConfig ini = let globals = toPair <$> I.iniGlobals ini
+                     in H.foldrWithKey flatten' globals $ I.iniSections ini
+    where
+        toPair (k, v) = (lcase $ T.unpack k, parseVal $ T.unpack v)
+        dot p (k, v) = (T.concat [p, ".", k], v)
+        flatten' section pairs acc = foldr ((:) . toPair . dot section) acc pairs
+        tryInteger v = (readMaybe v :: Maybe Integer) >>= \v -> return $ Just (Integer v)
+        tryDouble v = (readMaybe v :: Maybe Double) >>= \v -> return $ Just (Double v)
+        parseVal v | lcase v == "true" = Bool True
+                   | lcase v == "false" = Bool False
+                   | otherwise = maybe (String $ T.pack v) fromJust $ tryInteger v <|> tryDouble v
+
 getEnvMap :: [String] -> IO [(String, Value)]
 getEnvMap prefixes = getEnvironment >>= return . filterEnv prefixes
 
@@ -127,23 +146,27 @@ getArgMap = getArgs >>= return . mapArgs
 jsonFileReader :: FilePath -> EnvReader ()
 jsonFileReader path = StateT $ unifyConfig $ \config -> do
     mValue <- A.decodeFileStrict' path 
-    return $ maybe config (M.fromList . runFlatValueMap) (mValue :: Maybe FlatValueMap)
+    return $ maybe config vmToConfig (mValue :: Maybe FlatValueMap)
 
 yamlFileReader :: FilePath -> EnvReader ()
 yamlFileReader path = StateT $ unifyConfig $ \config -> do
     eValue <- YL.decodeFileEither path
     return $ case (eValue :: Either YL.ParseException FlatValueMap) of 
-        Right vm -> M.fromList $ runFlatValueMap vm
+        Right vm -> vmToConfig vm
         Left _ -> config -- for now we'll ignore exceptions, TODO: debate error handling API
 
 xmlFileReader :: FilePath -> EnvReader ()
 xmlFileReader path = return ()
 
 iniFileReader :: FilePath -> EnvReader ()
-iniFileReader path = return ()
+iniFileReader path = StateT $ unifyConfig $ \config -> do
+    eIni <- I.readIniFile path
+    return $ case eIni of
+        Right ini -> M.fromList $ mapIniToConfig ini
+        Left _ -> config -- again, ignoring exceptions
 
-remoteReader :: IO Config -> EnvReader ()
-remoteReader action = return ()
+remoteReader :: (Config -> IO Config) -> EnvReader ()
+remoteReader = StateT . unifyConfig
 
 envReader :: [String] -> EnvReader ()
 envReader prefixes = StateT $ unifyConfig $ \config -> do
