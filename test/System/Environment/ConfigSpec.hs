@@ -15,6 +15,9 @@ import Control.Monad.State (execStateT)
 -- Running the test executable with extra arguments like --env or environment variables like ENV
 -- WILL lead to test failures. 
 
+-- TODO: define exception handling behavior
+-- TODO: define ADT binding API
+
 spec :: Spec
 spec = do
     describe "getEnvName" $ 
@@ -46,7 +49,7 @@ spec = do
 
     describe "yamlFileReader" $ do
         it "should read configuration from a yaml file" $ 
-            checkKeys (yamlFileReader "test/Fixtures/config.yaml") baseFileKeys
+            checkKeys yamlFixtureReader baseFileKeys
         it "should merge with the upstream configuration map" $ let 
                 previousConfig = [
                     ("host", String "0.0.0.0"),
@@ -64,10 +67,27 @@ spec = do
     --     it "should flatten the structure into the configuration map" pending
     --     it "should merge with the upstream configuration map" pending
 
-    -- describe "iniFileReader" $ do
-    --     it "should read configuration from an ini file" pending
-    --     it "should flatten the structure into the configuration map" pending
-    --     it "should merge with the upstream configuration map" pending
+    describe "iniFileReader" $ do
+        it "should read configuration from an ini file" $ 
+            checkKeys iniFixtureReader [
+                    "env",
+                    "host",
+                    "port",
+                    "key with spaces",
+                    "db.host",
+                    "db.port",
+                    "db.policies.timeout",
+                    "vault.api_key"]
+        it "should merge with the upstream configuration map" $ let
+                previousConfig = [
+                    ("env", String "qa"),
+                    ("db.host", String "db.i.foocorp.net"),
+                    ("log_level", String "trace")]
+                nextConfig = [ 
+                    ("env", String "staging6"),
+                    ("db.host", String "172.7.7.7"),
+                    ("log_level", String "trace")]
+            in checkMerged previousConfig iniFixtureReader nextConfig
 
     -- describe "remoteReader" $ do
     --     it "should read configuration from a vault" pending

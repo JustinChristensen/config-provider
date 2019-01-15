@@ -19,6 +19,9 @@ jsonFixtureReader = jsonFileReader "test/Fixtures/config.json"
 yamlFixtureReader :: EnvReader ()
 yamlFixtureReader = yamlFileReader "test/Fixtures/config.yaml"
 
+iniFixtureReader :: EnvReader ()
+iniFixtureReader = iniFileReader "test/Fixtures/config.ini"
+
 setEnvVars :: [(String, String)] -> IO ()
 setEnvVars = mapM_ $ uncurry setEnv
 
