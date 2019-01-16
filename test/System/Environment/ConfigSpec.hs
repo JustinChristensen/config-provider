@@ -6,8 +6,8 @@ import Test.Hspec
 import System.Environment (withArgs)
 import System.Environment.Config
 import Data.List (isPrefixOf)
-import qualified Data.Map.Strict as M
 import Control.Monad.State (execStateT)
+import qualified Data.Map.Strict as M
 
 -- WARNING: 
 -- The tests herein are highly dependent on the state of the environment
@@ -32,7 +32,6 @@ spec = do
             e3 `shouldBe` Just (String "staging")
             e4 `shouldBe` Nothing
 
-    -- https://github.com/aspnet/Extensions/blob/master/src/Configuration/Config.FileExtensions/src/FileConfigurationSource.cs
     describe "jsonFileReader" $ do
         it "should read configuration from a json file" $
             checkKeys jsonFixtureReader baseFileKeys
@@ -99,21 +98,25 @@ spec = do
                     ("log_level", String "trace")]
             in checkMerged previousConfig iniFixtureReader nextConfig
 
-    -- describe "remoteReader" $ do
-    --     it "should read configuration from a vault" pending
-    --     it "should merge with the upstream configuration map" pending
+    describe "remoteReader" $ 
+        it "should read configuration from a vault" $ let
+                doGetSecret _ = getVaultSecret >>= \mData -> 
+                    return $ M.fromList $ case mData of 
+                        Just t -> [("s3.token", String $ token $ secretData $ vaultData t)]
+                        _ -> []
+            in do
+                config <- execStateT (remoteReader doGetSecret) M.empty
+                config `shouldHaveExactKeys` ["s3.token"]
 
-    -- https://github.com/aspnet/Extensions/blob/master/src/Configuration/Config.EnvironmentVariables/src/EnvironmentVariablesConfigurationProvider.cs
     describe "envReader" $ do
         it "should read configuration from environment variables" $ do
             config <- withStubEnv $ execStateT (envReader ["HS_", "HOST", "PORT"]) M.empty
             config `shouldHaveExactKeys` [
-                  "hs.vault_api_key"
-                , "hs.db.host"
-                , "hs.db.port"
-                , "host"
-                , "port"
-                ]
+                "hs.vault_api_key",
+                "hs.db.host",
+                "hs.db.port",
+                "host",
+                "port"]
         it "should filter out environment variables not listed in the prefix filter" $ do
             config <- withStubEnv $ execStateT (envReader ["HS_"]) M.empty
             config `shouldHaveKeys` ["hs.vault_api_key", "hs.db.host", "hs.db.port"]
@@ -122,7 +125,6 @@ spec = do
             config <- withStubEnv $ execStateT (envReader ["HS__DB__", "TOO"]) M.empty
             config `shouldHaveKeys` ["hs.db.host", "hs.db.port", "too.many.underscores"]
 
-    -- https://github.com/aspnet/Extensions/blob/master/src/Configuration/Config.CommandLine/src/CommandLineConfigurationProvider.cs
     describe "argsReader" $ do
         it "should read configuration from command-line args" $ do
             config <- withArgs stubArgs (execStateT argsReader M.empty)

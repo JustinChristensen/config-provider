@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 module SpecHelper (
     module SpecHelper,
     module Fixtures.EnvData
@@ -9,7 +11,11 @@ import System.Environment.Config
 import Control.Exception (bracket_)
 import Control.Monad (unless)
 import Control.Monad.State (execStateT)
+import GHC.Generics (Generic)
 import Fixtures.EnvData
+import Data.Aeson ((.:))
+import qualified Data.Text as T
+import qualified Data.Aeson as A
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
@@ -35,7 +41,7 @@ withEnv :: [(String, String)] -> IO a -> IO a
 withEnv env = bracket_ (setEnvVars env) (unsetEnvVars env)
 
 withStubEnv :: IO a -> IO a
-withStubEnv = withEnv stubEnv 
+withStubEnv = withEnv stubEnv
 
 shouldHaveKeys :: (Show k, Ord k) => M.Map k v -> [k] -> Expectation
 actual `shouldHaveKeys` expected = let
@@ -52,7 +58,7 @@ actual `shouldNotHaveKeys` expected = let
     in unless (s1 `S.disjoint` s2) $ expectationFailure errMsg
 
 shouldHaveExactKeys :: (Show k, Ord k) => M.Map k v -> [k] -> Expectation
-actual `shouldHaveExactKeys` expected = 
+actual `shouldHaveExactKeys` expected =
     M.keys actual `shouldMatchList` expected
 
 checkKeys :: EnvReader () -> [String] -> Expectation
@@ -90,5 +96,31 @@ checkMerged :: [(String, Value)] -> EnvReader () -> [(String, Value)] -> Expecta
 checkMerged previousConfig reader nextConfig = do
         config <- execStateT reader $ M.fromList previousConfig
         mapM_ (checkMergedValue config) nextConfig
-    where 
+    where
         checkMergedValue config (k, v) = M.lookup k config `shouldBe` Just v
+
+newtype SecretData = SecretData { token :: T.Text } 
+        deriving (Show, Generic)
+
+newtype VaultData = VaultData { secretData :: SecretData } 
+        deriving (Show, Generic)
+
+data VaultResponse = VaultResponse { request_id :: T.Text, vaultData :: VaultData } 
+        deriving (Show, Generic)
+
+instance A.FromJSON SecretData where
+        parseJSON = A.withObject "SecretData" $ \o -> SecretData
+            <$> o .: "token"
+
+instance A.FromJSON VaultData where
+        parseJSON = A.withObject "VaultData" $ \o -> VaultData
+            <$> o .: "data"
+
+instance A.FromJSON VaultResponse where
+        parseJSON = A.withObject "VaultResponse" $ \o -> VaultResponse
+            <$> o .: "request_id" <*> o .: "data"
+
+getVaultSecret :: IO (Maybe VaultResponse)
+getVaultSecret = do
+    mData <- A.decodeFileStrict' "test/Fixtures/vault.json"
+    return (mData :: Maybe VaultResponse)

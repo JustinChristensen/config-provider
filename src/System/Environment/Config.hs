@@ -17,7 +17,7 @@ module System.Environment.Config (
 ) where
 
 import System.Environment (lookupEnv, getArgs, getEnvironment)
-import Control.Monad.State (StateT(..), execStateT, liftIO)
+import Control.Monad.State (StateT(..), execStateT, liftIO, gets)
 import Data.Char (toLower, isSpace)
 import Data.List (isPrefixOf)
 import Control.Applicative ((<|>))
@@ -25,7 +25,7 @@ import GHC.Generics
 import Data.Scientific (Scientific, floatingOrInteger)
 import Data.Aeson.Types (typeMismatch)
 import Text.Read (readMaybe)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromMaybe)
 import qualified Data.ByteString.Char8 as B
 import qualified Xeno.DOM as X
 import qualified Data.Vector as V
@@ -128,10 +128,10 @@ mapArgs [] = []
 parseVal :: String -> Value
 parseVal v | lcase v == "true" = Bool True
            | lcase v == "false" = Bool False
-           | otherwise = maybe (String $ T.pack v) fromJust $ tryInteger v <|> tryDouble v
+           | otherwise = fromMaybe (String $ T.pack v) $ tryInteger v <|> tryDouble v
     where 
-        tryInteger v = (readMaybe v :: Maybe Integer) >>= \v -> return $ Just (Integer v)
-        tryDouble v = (readMaybe v :: Maybe Double) >>= \v -> return $ Just (Double v)
+        tryInteger v = (readMaybe v :: Maybe Integer) >>= \v' -> return $ Integer v'
+        tryDouble v = (readMaybe v :: Maybe Double) >>= \v' -> return $ Double v'
 
 mapIniToConfig :: I.Ini -> [(String, Value)]
 mapIniToConfig ini = let globals = toPair <$> I.iniGlobals ini
@@ -209,6 +209,7 @@ argsReader = remoteReader $ \config -> do
 defaultEnvNameVar :: String
 defaultEnvNameVar = "env"
 
+-- TODO: * filters
 defaultEnvPrefixFilter :: [String]
 defaultEnvPrefixFilter = [
       defaultEnvNameVar
@@ -225,15 +226,20 @@ getEnvName = let
         em <- getEnvMap defaultEnvPrefixFilter
         return $ lookup e am <|> lookup e em
 
-maybeEnvFileReader :: Maybe Value -> EnvReader ()
-maybeEnvFileReader (Just (String env)) = jsonFileReader $ "app." ++ T.unpack env ++ ".json"
-maybeEnvFileReader Nothing = return ()
-maybeEnvFileReader _ = return ()
+appFileReader :: EnvReader ()
+appFileReader = let 
+        readEnvFile env = case env of
+            String env -> jsonFileReader $ "app." ++ T.unpack env ++ ".json"
+            _ -> return ()
+    in do
+        jsonFileReader "app.json"
+        mEnv <- liftIO getEnvName
+        fEnv <- gets (M.lookup "env")
+        maybe (return ()) readEnvFile $ mEnv <|> fEnv
 
 defaultReader :: EnvReader ()
 defaultReader = do
-    jsonFileReader "app.json"
-    liftIO getEnvName >>= maybeEnvFileReader
+    appFileReader
     envReader defaultEnvPrefixFilter
     argsReader
 
