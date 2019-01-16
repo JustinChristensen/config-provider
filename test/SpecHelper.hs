@@ -10,7 +10,7 @@ import Control.Exception (bracket_)
 import Control.Monad (unless)
 import Control.Monad.State (execStateT)
 import Fixtures.EnvData
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
 jsonFixtureReader :: EnvReader ()
@@ -21,6 +21,9 @@ yamlFixtureReader = yamlFileReader "test/Fixtures/config.yaml"
 
 iniFixtureReader :: EnvReader ()
 iniFixtureReader = iniFileReader "test/Fixtures/config.ini"
+
+xmlFixtureReader :: EnvReader ()
+xmlFixtureReader = xmlFileReader "test/Fixtures/config.xml"
 
 setEnvVars :: [(String, String)] -> IO ()
 setEnvVars = mapM_ $ uncurry setEnv
@@ -59,7 +62,7 @@ checkKeys reader keys = do
 
 baseFileKeys :: [String]
 baseFileKeys = [
-       "env"
+      "env"
     , "host"
     , "port"
     , "db.host"
@@ -70,6 +73,17 @@ baseFileKeys = [
     , "data.dirs[1]"
     , "data.dirs[2]"
     , "key with spaces"
+    ]
+
+baseIniXmlKeys :: [String]
+baseIniXmlKeys = [
+      "env"
+    , "host"
+    , "port"
+    , "db.host"
+    , "db.port"
+    , "db.policies.timeout"
+    , "vault.api_key"
     ]
 
 checkMerged :: [(String, Value)] -> EnvReader () -> [(String, Value)] -> Expectation

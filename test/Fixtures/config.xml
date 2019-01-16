@@ -1,12 +1,11 @@
-<settings key1="true" key2="3.1459">
-    <Data.Setting key1="-3154" key2="local">
-        <DefaultConnection>
-            <Connection.String>Test.Connection.String</Connection.String>
-            <Provider>SqlClient</Provider>
-        </DefaultConnection>
-        <Inventory>
-            <ConnectionString>AnotherTestConnectionString</ConnectionString>
-            <Provider>MySql</Provider>
-        </Inventory>
-    </Data.Setting>
-</settings>
+<application host="127.0.0.1" port="8000" ENV="preprod">
+    <DB>
+        <host>10.111.51.2</host>
+        <port>27000</port>
+        <policies>
+            <timeout>95959</timeout>
+        </policies>
+    </DB>
+    <vault api_key="xml-file-api-key" />
+    <extra>      </extra>
+</application>

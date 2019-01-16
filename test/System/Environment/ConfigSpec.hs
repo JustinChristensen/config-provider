@@ -5,7 +5,8 @@ import SpecHelper
 import Test.Hspec
 import System.Environment (withArgs)
 import System.Environment.Config
-import qualified Data.Map as M
+import Data.List (isPrefixOf)
+import qualified Data.Map.Strict as M
 import Control.Monad.State (execStateT)
 
 -- WARNING: 
@@ -20,7 +21,7 @@ import Control.Monad.State (execStateT)
 
 spec :: Spec
 spec = do
-    describe "getEnvName" $ 
+    describe "getEnvName" $
         it "should prefer args to env vars" $ do
             e1 <- withEnv [("ENV", "development")] getEnvName
             e2 <- withArgs ["--env", "production"] getEnvName
@@ -33,14 +34,14 @@ spec = do
 
     -- https://github.com/aspnet/Extensions/blob/master/src/Configuration/Config.FileExtensions/src/FileConfigurationSource.cs
     describe "jsonFileReader" $ do
-        it "should read configuration from a json file" $ 
+        it "should read configuration from a json file" $
             checkKeys jsonFixtureReader baseFileKeys
-        it "should merge with the upstream configuration map" $ let 
+        it "should merge with the upstream configuration map" $ let
                 previousConfig = [
                     ("host", String "0.0.0.0"),
                     ("db.host", String "db.i.foocorp.net"),
                     ("log_level", String "trace")]
-                nextConfig = [ 
+                nextConfig = [
                     ("host", String "192.168.5.200"),
                     ("db.host", String "10.10.10.11"),
                     ("data.dirs[1]", String "tmp2"),
@@ -48,42 +49,51 @@ spec = do
             in checkMerged previousConfig jsonFixtureReader nextConfig
 
     describe "yamlFileReader" $ do
-        it "should read configuration from a yaml file" $ 
+        it "should read configuration from a yaml file" $
             checkKeys yamlFixtureReader baseFileKeys
-        it "should merge with the upstream configuration map" $ let 
+        it "should merge with the upstream configuration map" $ let
                 previousConfig = [
                     ("host", String "0.0.0.0"),
                     ("db.host", String "db.i.foocorp.net"),
                     ("log_level", String "trace")]
-                nextConfig = [ 
+                nextConfig = [
                     ("host", String "127.0.0.1"),
                     ("db.host", String "172.16.9.44"),
                     ("data.dirs[1]", String "tmp2"),
                     ("log_level", String "trace")]
             in checkMerged previousConfig yamlFixtureReader nextConfig
 
-    -- describe "xmlFileReader" $ do
-    --     it "should read configuration from an xml file" pending
-    --     it "should filter out whitespace text nodes" pending
-    --     it "should merge with the upstream configuration map" pending
+    describe "xmlFileReader" $ do
+        it "should read configuration from an xml file" $
+            checkKeys xmlFixtureReader baseIniXmlKeys
+        it "should omit the root element from the path" $ do
+            config <- execStateT xmlFixtureReader M.empty
+            M.keys config `shouldNotSatisfy` any (isPrefixOf "application")
+        it "should filter out whitespace-only text nodes" $ do
+            config <- execStateT xmlFixtureReader M.empty
+            M.lookup "extra" config `shouldBe` Nothing
+        it "should merge with the upstream configuration map" $ let
+                previousConfig = [
+                    ("env", String "qa"),
+                    ("db.host", String "db.i.foocorp.net"),
+                    ("db.port", Integer 4747),
+                    ("log_level", String "trace")]
+                nextConfig = [
+                    ("env", String "preprod"),
+                    ("db.host", String "10.111.51.2"),
+                    ("db.port", Integer 27000),
+                    ("log_level", String "trace")]
+            in checkMerged previousConfig xmlFixtureReader nextConfig
 
     describe "iniFileReader" $ do
-        it "should read configuration from an ini file" $ 
-            checkKeys iniFixtureReader [
-                    "env",
-                    "host",
-                    "port",
-                    "key with spaces",
-                    "db.host",
-                    "db.port",
-                    "db.policies.timeout",
-                    "vault.api_key"]
+        it "should read configuration from an ini file" $
+            checkKeys iniFixtureReader ("key with spaces" : baseIniXmlKeys)
         it "should merge with the upstream configuration map" $ let
                 previousConfig = [
                     ("env", String "qa"),
                     ("db.host", String "db.i.foocorp.net"),
                     ("log_level", String "trace")]
-                nextConfig = [ 
+                nextConfig = [
                     ("env", String "staging6"),
                     ("db.host", String "172.7.7.7"),
                     ("log_level", String "trace")]
@@ -114,7 +124,7 @@ spec = do
 
     -- https://github.com/aspnet/Extensions/blob/master/src/Configuration/Config.CommandLine/src/CommandLineConfigurationProvider.cs
     describe "argsReader" $ do
-        it "should read configuration from command-line args" $ do 
+        it "should read configuration from command-line args" $ do
             config <- withArgs stubArgs (execStateT argsReader M.empty)
             config `shouldBe` M.fromList [
                   ("api-key", String "foo-bar")

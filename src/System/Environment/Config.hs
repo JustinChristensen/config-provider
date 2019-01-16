@@ -30,7 +30,7 @@ import qualified Data.ByteString.Char8 as B
 import qualified Xeno.DOM as X
 import qualified Data.Vector as V
 import qualified Data.Text as T
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import qualified Data.Aeson as A
 import qualified Data.Ini as I
 import qualified Data.Yaml as YL
@@ -89,10 +89,10 @@ unifyConfig f c1 = do
     c2 <- f c1
     return ((), M.union c2 c1)
 
-normalizeEnvKey :: String -> String
-normalizeEnvKey ('_':'_':cs) = '.' : normalizeEnvKey (dropWhile (== '_') cs)
-normalizeEnvKey (c:cs) = toLower c : normalizeEnvKey cs
-normalizeEnvKey [] = []
+normalizeKey :: String -> String
+normalizeKey ('_':'_':cs) = '.' : normalizeKey (dropWhile (== '_') cs)
+normalizeKey (c:cs) = toLower c : normalizeKey cs
+normalizeKey [] = []
 
 toVal :: String -> Value
 toVal v = if null v then Bool True else String (T.pack v)
@@ -101,9 +101,9 @@ lcase :: String -> String
 lcase = map toLower
 
 filterEnv :: [String] -> [(String, String)] -> [(String, Value)]
-filterEnv prefixes env = map normalizeEnvKey' $ filter keyMatchesPrefix env
+filterEnv prefixes env = map normalizeKey' $ filter keyMatchesPrefix env
     where
-        normalizeEnvKey' (k, v) = (normalizeEnvKey k, toVal v)
+        normalizeKey' (k, v) = (normalizeKey k, toVal v)
         keyMatchesPrefix (k, _) = any ((`isPrefixOf` lcase k) . lcase) prefixes
 
 argToPair :: String -> (String, Value)
@@ -111,7 +111,7 @@ argToPair ('-':'-':arg) = argToPair arg
 argToPair arg = splitAtChar '=' arg
     where
         splitAtChar c str = let
-                key = normalizeEnvKey $ takeWhile (/= c) str
+                key = normalizeKey $ takeWhile (/= c) str
                 val = case dropWhile (/= c) str of
                     "" -> toVal ""
                     cs -> toVal $ tail cs
@@ -142,7 +142,8 @@ mapIniToConfig ini = let globals = toPair <$> I.iniGlobals ini
         flattenIni section pairs acc = foldr ((:) . toPair . dot section) acc pairs
 
 mapXmlToConfig :: X.Node -> [(String, Value)]
-mapXmlToConfig n = flattenNode "" n []
+mapXmlToConfig node = let attrPairs = flattenAttrs "" (X.attributes node) []
+                      in flattenContents "" (X.contents node) attrPairs
     where 
         dot "" k = k
         dot p k = B.concat [p, ".", k]
@@ -166,42 +167,42 @@ getArgMap :: IO [(String, Value)]
 getArgMap = getArgs >>= return . mapArgs
 
 -- env readers
+remoteReader :: (Config -> IO Config) -> EnvReader ()
+remoteReader = StateT . unifyConfig
+
 jsonFileReader :: FilePath -> EnvReader ()
-jsonFileReader path = StateT $ unifyConfig $ \config -> do
+jsonFileReader path = remoteReader $ \config -> do
     mValue <- A.decodeFileStrict' path 
     return $ maybe config vmToConfig (mValue :: Maybe FlatValueMap)
 
 yamlFileReader :: FilePath -> EnvReader ()
-yamlFileReader path = StateT $ unifyConfig $ \config -> do
+yamlFileReader path = remoteReader $ \config -> do
     eValue <- YL.decodeFileEither path
     return $ case (eValue :: Either YL.ParseException FlatValueMap) of 
         Right vm -> vmToConfig vm
         Left _ -> config -- for now we'll ignore exceptions, TODO: debate error handling API
 
 xmlFileReader :: FilePath -> EnvReader ()
-xmlFileReader path = StateT $ unifyConfig $ \config -> do
+xmlFileReader path = remoteReader $ \config -> do
     eNode <- B.readFile path >>= return . X.parse
     return $ case eNode of 
         Right node -> M.fromList $ mapXmlToConfig node
         Left _ -> config -- again, ignoring exceptions
 
 iniFileReader :: FilePath -> EnvReader ()
-iniFileReader path = StateT $ unifyConfig $ \config -> do
+iniFileReader path = remoteReader $ \config -> do
     eIni <- I.readIniFile path
     return $ case eIni of
         Right ini -> M.fromList $ mapIniToConfig ini
         Left _ -> config -- again, ignoring exceptions
 
-remoteReader :: (Config -> IO Config) -> EnvReader ()
-remoteReader = StateT . unifyConfig
-
 envReader :: [String] -> EnvReader ()
-envReader prefixes = StateT $ unifyConfig $ \config -> do
+envReader prefixes = remoteReader $ \config -> do
     envMap <- getEnvMap prefixes
     return $ M.fromList envMap
 
 argsReader :: EnvReader ()
-argsReader = StateT $ unifyConfig $ \config -> do
+argsReader = remoteReader $ \config -> do
     argMap <- getArgMap
     return $ M.fromList argMap
 
