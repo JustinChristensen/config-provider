@@ -86,8 +86,11 @@ flatten path key val acc = case val of
 
 unifyConfig :: (Config -> IO Config) -> Config -> IO ((), Config)
 unifyConfig f c1 = do
-    c2 <- f c1
-    return ((), M.union c2 c1)
+        c2 <- f c1
+        return ((), M.unionWith pickVal c2 c1)
+    where 
+        pickVal Null v1 = v1
+        pickVal v2 _ = v2
 
 normalizeKey :: String -> String
 normalizeKey ('_':'_':cs) = '.' : normalizeKey (dropWhile (== '_') cs)
@@ -209,7 +212,6 @@ argsReader = remoteReader $ \config -> do
 defaultEnvNameVar :: String
 defaultEnvNameVar = "env"
 
--- TODO: * filters
 defaultEnvPrefixFilter :: [String]
 defaultEnvPrefixFilter = [
       defaultEnvNameVar

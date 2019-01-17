@@ -150,16 +150,4 @@ spec = do
                   ("arg1", String "val1")
                 , ("db.host", String "127.0.0.1")
                 , ("db.port", String "5432")
-                ]
-
-    -- describe "defaultReader" $ do
-    --     it "args should override env" pending
-    --     it "env should override the environment json file" pending
-    --     it "the environment json file should override the base application json file" pending
-    --     it "should read the environment json file only if the env was specified" pending
-
-    -- describe "getConfigDefault" $ 
-    --     it "should return the merged configuration map from the default reader" pending
-
-    -- describe "getConfig" $ 
-    --     it "should return the merged configuration map from the provided reader" pending
+                ] 
