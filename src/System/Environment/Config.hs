@@ -16,7 +16,6 @@ module System.Environment.Config (
     , getEnvMap
 ) where
 
-import Debug.Trace (traceShow)
 import System.Directory (getPermissions, Permissions, readable)
 import System.Environment (lookupEnv, getArgs, getEnvironment)
 import Control.Exception (try, IOException)
