@@ -1,8 +1,6 @@
 module Main where
 
-import System.Environment.Config (getConfigDefault)
+import System.Environment.Config.Default (getConfig)
 
 main :: IO ()
-main = do
-    config <- getConfigDefault
-    print config
+main = getConfig >>= print

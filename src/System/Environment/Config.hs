@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 module System.Environment.Config (
-      EnvReader
+      Config
+    , EnvReader
     , Value(..)
     , getConfig
-    , getConfigDefault
     , jsonFileReader
     , xmlFileReader
     , yamlFileReader
@@ -12,8 +12,8 @@ module System.Environment.Config (
     , remoteReader
     , envReader
     , argsReader
-    , defaultReader
-    , getEnvName
+    , getArgMap
+    , getEnvMap
 ) where
 
 import Debug.Trace (traceShow)
@@ -22,7 +22,7 @@ import System.Environment (lookupEnv, getArgs, getEnvironment)
 import Control.Exception (try, IOException)
 import Control.Monad (when)
 import Control.Applicative ((<|>))
-import Control.Monad.State (StateT(..), execStateT, liftIO, get, gets)
+import Control.Monad.State (StateT(..), execStateT, liftIO, get)
 import Data.Char (toLower, isSpace)
 import Data.List (isPrefixOf, stripPrefix)
 import GHC.Generics
@@ -40,7 +40,6 @@ import qualified Data.Ini as I
 import qualified Data.Yaml as YL
 import qualified Data.HashMap.Strict as H
 
--- TODO: test the performance impact of strictness here
 data Value = String !T.Text
            | Double !Double
            | Integer !Integer
@@ -176,7 +175,6 @@ getEnvMap prefixes = getEnvironment >>= return . filterEnv prefixes
 getArgMap :: IO [(String, Value)]
 getArgMap = getArgs >>= return . mapArgs
 
--- env readers
 unifyConfig :: Config -> EnvReader ()
 unifyConfig c2 = StateT $ \c1 ->
         return ((), M.unionWith pickVal c2 c1)
@@ -232,45 +230,6 @@ argsReader :: EnvReader ()
 argsReader = remoteReader $ \config -> do
     argMap <- getArgMap
     return $ M.fromList argMap
-
-defaultEnvNameVar :: String
-defaultEnvNameVar = "env"
-
-defaultEnvPrefixFilter :: [String]
-defaultEnvPrefixFilter = [
-      defaultEnvNameVar
-    , "~hs__"
-    , "host"
-    , "port"
-    ]
-
-getEnvName :: IO (Maybe Value)
-getEnvName = let
-        e = defaultEnvNameVar
-    in do
-        am <- getArgMap
-        em <- getEnvMap defaultEnvPrefixFilter
-        return $ lookup e am <|> lookup e em
-
-appFileReader :: EnvReader ()
-appFileReader = let 
-        readEnvFile env = case env of
-            String env -> jsonFileReader $ "app." ++ T.unpack env ++ ".json"
-            _ -> return ()
-    in do
-        jsonFileReader "app.json"
-        mEnv <- liftIO getEnvName
-        fEnv <- gets (M.lookup "env")
-        maybe (return ()) readEnvFile $ mEnv <|> fEnv
-
-defaultReader :: EnvReader ()
-defaultReader = do
-    appFileReader
-    envReader defaultEnvPrefixFilter
-    argsReader
-
-getConfigDefault :: IO Config
-getConfigDefault = getConfig defaultReader
 
 getConfig :: EnvReader () -> IO Config
 getConfig reader = execStateT reader M.empty
