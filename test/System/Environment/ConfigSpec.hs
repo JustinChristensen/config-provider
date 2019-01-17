@@ -110,20 +110,20 @@ spec = do
 
     describe "envReader" $ do
         it "should read configuration from environment variables" $ do
-            config <- withStubEnv $ execStateT (envReader ["HS_", "HOST", "PORT"]) M.empty
+            config <- withStubEnv $ execStateT (envReader ["~HS__", "HOST", "PORT"]) M.empty
             config `shouldHaveExactKeys` [
-                "hs.vault_api_key",
-                "hs.db.host",
-                "hs.db.port",
+                "vault_api_key",
+                "db.host",
+                "db.port",
                 "host",
                 "port"]
         it "should filter out environment variables not listed in the prefix filter" $ do
-            config <- withStubEnv $ execStateT (envReader ["HS_"]) M.empty
-            config `shouldHaveKeys` ["hs.vault_api_key", "hs.db.host", "hs.db.port"]
+            config <- withStubEnv $ execStateT (envReader ["~HS__"]) M.empty
+            config `shouldHaveKeys` ["vault_api_key", "db.host", "db.port"]
             config `shouldNotHaveKeys` ["foo" , "host" , "port"]
         it "should normalize environment variables to lowercase and dot separators" $ do
-            config <- withStubEnv $ execStateT (envReader ["HS__DB__", "TOO"]) M.empty
-            config `shouldHaveKeys` ["hs.db.host", "hs.db.port", "too.many.underscores"]
+            config <- withStubEnv $ execStateT (envReader ["TOO"]) M.empty
+            config `shouldHaveKeys` ["too.many.underscores"]
 
     describe "argsReader" $ do
         it "should read configuration from command-line args" $ do

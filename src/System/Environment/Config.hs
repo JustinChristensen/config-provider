@@ -19,7 +19,7 @@ module System.Environment.Config (
 import System.Environment (lookupEnv, getArgs, getEnvironment)
 import Control.Monad.State (StateT(..), execStateT, liftIO, gets)
 import Data.Char (toLower, isSpace)
-import Data.List (isPrefixOf)
+import Data.List (isPrefixOf, stripPrefix)
 import Control.Applicative ((<|>))
 import GHC.Generics
 import Data.Scientific (Scientific, floatingOrInteger)
@@ -104,10 +104,21 @@ lcase :: String -> String
 lcase = map toLower
 
 filterEnv :: [String] -> [(String, String)] -> [(String, Value)]
-filterEnv prefixes env = map normalizeKey' $ filter keyMatchesPrefix env
+filterEnv prefixes env = map envPair $ filter keyMatchesPrefix env
     where
-        normalizeKey' (k, v) = (normalizeKey k, toVal v)
-        keyMatchesPrefix (k, _) = any ((`isPrefixOf` lcase k) . lcase) prefixes
+        keyMatchesPrefix (k, _) = any ((`isPrefixOf` lcase k) . tailIfTilde . lcase) prefixes
+        tailIfTilde ('~':cs) = cs
+        tailIfTilde cs = cs
+        envPair (k, v) = let    
+                isLongestMatched ('~':p) Nothing  | p `isPrefixOf` k = Just p
+                                                  | otherwise = Nothing
+                isLongestMatched ('~':p) (Just l) | p `isPrefixOf` k && length p > length l = Just p
+                                                  | otherwise = Just l
+                isLongestMatched _ l = l
+                stripLongestPrefix k = fromMaybe k $ 
+                    foldr isLongestMatched Nothing prefixes >>= \p ->
+                        stripPrefix p k
+            in (normalizeKey $ stripLongestPrefix k, toVal v)
 
 argToPair :: String -> (String, Value)
 argToPair ('-':'-':arg) = argToPair arg
@@ -215,7 +226,7 @@ defaultEnvNameVar = "env"
 defaultEnvPrefixFilter :: [String]
 defaultEnvPrefixFilter = [
       defaultEnvNameVar
-    , "hs_"
+    , "~hs__"
     , "host"
     , "port"
     ]
