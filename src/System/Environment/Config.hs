@@ -16,11 +16,15 @@ module System.Environment.Config (
     , getEnvName
 ) where
 
+import Debug.Trace (traceShow)
+import System.Directory (getPermissions, Permissions, readable)
 import System.Environment (lookupEnv, getArgs, getEnvironment)
-import Control.Monad.State (StateT(..), execStateT, liftIO, gets)
+import Control.Exception (try, IOException)
+import Control.Monad (when)
+import Control.Applicative ((<|>))
+import Control.Monad.State (StateT(..), execStateT, liftIO, get, gets)
 import Data.Char (toLower, isSpace)
 import Data.List (isPrefixOf, stripPrefix)
-import Control.Applicative ((<|>))
 import GHC.Generics
 import Data.Scientific (Scientific, floatingOrInteger)
 import Data.Aeson.Types (typeMismatch)
@@ -84,14 +88,6 @@ flatten path key val acc = case val of
         dot p (Left k) = p ++ '[' : show k ++ "]"
         dot p (Right k) = p ++ '.' : T.unpack k
 
-unifyConfig :: (Config -> IO Config) -> Config -> IO ((), Config)
-unifyConfig f c1 = do
-        c2 <- f c1
-        return ((), M.unionWith pickVal c2 c1)
-    where 
-        pickVal Null v1 = v1
-        pickVal v2 _ = v2
-
 normalizeKey :: String -> String
 normalizeKey ('_':'_':cs) = '.' : normalizeKey (dropWhile (== '_') cs)
 normalizeKey (c:cs) = toLower c : normalizeKey cs
@@ -110,15 +106,15 @@ filterEnv prefixes env = map envPair $ filter keyMatchesPrefix env
         tailIfTilde ('~':cs) = cs
         tailIfTilde cs = cs
         envPair (k, v) = let    
-                isLongestMatched ('~':p) Nothing  | p `isPrefixOf` k = Just p
-                                                  | otherwise = Nothing
-                isLongestMatched ('~':p) (Just l) | p `isPrefixOf` k && length p > length l = Just p
-                                                  | otherwise = Just l
-                isLongestMatched _ l = l
-                stripLongestPrefix k = fromMaybe k $ 
-                    foldr isLongestMatched Nothing prefixes >>= \p ->
-                        stripPrefix p k
-            in (normalizeKey $ stripLongestPrefix k, toVal v)
+                isLongestMatched lk ('~':p) Nothing  | lcase p `isPrefixOf` lk = Just p
+                                                     | otherwise = Nothing
+                isLongestMatched lk ('~':p) (Just l) | lcase p `isPrefixOf` lk && length p > length l = Just p
+                                                     | otherwise = Just l
+                isLongestMatched lk _ l = l
+                stripLongestPrefix lk = fromMaybe lk $ 
+                    foldr (isLongestMatched lk) Nothing prefixes >>= \p ->
+                        stripPrefix (lcase p) lk
+            in (normalizeKey $ stripLongestPrefix $ lcase k, toVal v)
 
 argToPair :: String -> (String, Value)
 argToPair ('-':'-':arg) = argToPair arg
@@ -181,30 +177,47 @@ getArgMap :: IO [(String, Value)]
 getArgMap = getArgs >>= return . mapArgs
 
 -- env readers
+unifyConfig :: Config -> EnvReader ()
+unifyConfig c2 = StateT $ \c1 ->
+        return ((), M.unionWith pickVal c2 c1)
+    where 
+        pickVal Null v1 = v1
+        pickVal v2 _ = v2
+
 remoteReader :: (Config -> IO Config) -> EnvReader ()
-remoteReader = StateT . unifyConfig
+remoteReader f = do
+    c1 <- get
+    c2 <- liftIO $ f c1
+    unifyConfig c2
+
+whenReadable :: FilePath -> (Config -> IO Config) -> EnvReader ()
+whenReadable path f = do
+    ePerms <- liftIO $ try $ getPermissions path
+    case (ePerms :: Either IOException Permissions) of
+        Right perms -> when (readable perms) $ remoteReader f
+        _ -> return ()
 
 jsonFileReader :: FilePath -> EnvReader ()
-jsonFileReader path = remoteReader $ \config -> do
+jsonFileReader path = whenReadable path $ \config -> do
     mValue <- A.decodeFileStrict' path 
     return $ maybe config vmToConfig (mValue :: Maybe FlatValueMap)
 
 yamlFileReader :: FilePath -> EnvReader ()
-yamlFileReader path = remoteReader $ \config -> do
+yamlFileReader path = whenReadable path $ \config -> do
     eValue <- YL.decodeFileEither path
     return $ case (eValue :: Either YL.ParseException FlatValueMap) of 
         Right vm -> vmToConfig vm
         Left _ -> config -- for now we'll ignore exceptions, TODO: debate error handling API
 
 xmlFileReader :: FilePath -> EnvReader ()
-xmlFileReader path = remoteReader $ \config -> do
+xmlFileReader path = whenReadable path $ \config -> do
     eNode <- B.readFile path >>= return . X.parse
     return $ case eNode of 
         Right node -> M.fromList $ mapXmlToConfig node
         Left _ -> config -- again, ignoring exceptions
 
 iniFileReader :: FilePath -> EnvReader ()
-iniFileReader path = remoteReader $ \config -> do
+iniFileReader path = whenReadable path $ \config -> do
     eIni <- I.readIniFile path
     return $ case eIni of
         Right ini -> M.fromList $ mapIniToConfig ini

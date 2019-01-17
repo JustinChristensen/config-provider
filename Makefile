@@ -6,6 +6,9 @@ all: test
 build: 
 	cabal v2-build
 
+run: 
+	cabal v2-run config-provider
+
 test: 
 	cabal v2-run $(TEST_PROG)
 
@@ -28,4 +31,4 @@ clean:
 dev-deps:
 	cabal v2-install hlint
 
-.PHONY: all build clean test repl lint coverage dev-deps
+.PHONY: all build clean test repl lint coverage dev-deps run
