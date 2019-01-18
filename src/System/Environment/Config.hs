@@ -57,7 +57,7 @@ instance A.FromJSON Value where
     parseJSON invalid = typeMismatch "Value" invalid
 
 newtype FlatValueMap = FlatValueMap { runFlatValueMap :: [(String, Value)] }
-    deriving (Eq, Read, Show)
+    deriving (Show)
 
 instance A.FromJSON FlatValueMap where
     parseJSON o@(A.Object _) = return $ FlatValueMap $ flatten "" (Right "") o []
