@@ -13,7 +13,7 @@ import System.Environment.Config hiding (getConfig)
 import Control.Applicative ((<|>))
 import qualified System.Environment.Config as C (getConfig)
 import qualified Data.Text as T
-import qualified Data.Map.Strict as M
+import qualified Data.HashMap.Strict as H
 
 envNameVar :: String
 envNameVar = "env"
@@ -42,7 +42,7 @@ appFileReader = let
     in do
         jsonFileReader "app.json"
         mEnv <- liftIO getEnvName
-        fEnv <- gets (M.lookup "env")
+        fEnv <- gets (H.lookup "env")
         maybe (return ()) readEnvFile $ mEnv <|> fEnv
 
 defaultReader :: EnvReader ()

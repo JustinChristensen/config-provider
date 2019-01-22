@@ -33,7 +33,6 @@ import qualified Data.ByteString.Char8 as B
 import qualified Xeno.DOM as X
 import qualified Data.Vector as V
 import qualified Data.Text as T
-import qualified Data.Map.Strict as M
 import qualified Data.Aeson as A
 import qualified Data.Ini as I
 import qualified Data.Yaml as YL
@@ -46,8 +45,14 @@ data Value = String !T.Text
            | Null
              deriving (Eq, Read, Show, Generic)
 
-type Config = M.Map String Value
+type Config = H.HashMap String Value
 type EnvReader = StateT Config IO
+
+newtype FlatValueMap = FlatValueMap { runFlatValueMap :: [(String, Value)] }
+    deriving (Show)
+
+class A.FromJSON t => FromConfig t where
+    merge :: t -> t -> t
 
 instance A.FromJSON Value where
     parseJSON s@(A.String _) = return $ mapJsonVal s
@@ -55,9 +60,6 @@ instance A.FromJSON Value where
     parseJSON b@(A.Bool _) = return $ mapJsonVal b
     parseJSON n@A.Null = return $ mapJsonVal n
     parseJSON invalid = typeMismatch "Value" invalid
-
-newtype FlatValueMap = FlatValueMap { runFlatValueMap :: [(String, Value)] }
-    deriving (Show)
 
 instance A.FromJSON FlatValueMap where
     parseJSON o@(A.Object _) = return $ FlatValueMap $ flatten "" (Right "") o []
@@ -74,7 +76,7 @@ mapJsonVal A.Null = Null
 mapJsonVal _ = error "use parseJSON to convert aeson arrays and objects"
 
 vmToConfig :: FlatValueMap -> Config
-vmToConfig = M.fromList . runFlatValueMap
+vmToConfig = H.fromList . runFlatValueMap
 
 flatten :: String -> Either Int T.Text -> A.Value -> [(String, Value)] -> [(String, Value)]
 flatten path key val acc = case val of
@@ -176,7 +178,7 @@ getArgMap = getArgs >>= return . mapArgs
 
 unifyConfig :: Config -> EnvReader ()
 unifyConfig c2 = StateT $ \c1 ->
-        return ((), M.unionWith pickVal c2 c1)
+        return ((), H.unionWith pickVal c2 c1)
     where 
         pickVal Null v1 = v1
         pickVal v2 _ = v2
@@ -210,25 +212,25 @@ xmlFileReader :: FilePath -> EnvReader ()
 xmlFileReader path = whenReadable path $ \config -> do
     eNode <- B.readFile path >>= return . X.parse
     return $ case eNode of 
-        Right node -> M.fromList $ mapXmlToConfig node
+        Right node -> H.fromList $ mapXmlToConfig node
         Left _ -> config -- again, ignoring exceptions
 
 iniFileReader :: FilePath -> EnvReader ()
 iniFileReader path = whenReadable path $ \config -> do
     eIni <- I.readIniFile path
     return $ case eIni of
-        Right ini -> M.fromList $ mapIniToConfig ini
+        Right ini -> H.fromList $ mapIniToConfig ini
         Left _ -> config -- again, ignoring exceptions
 
 envReader :: [String] -> EnvReader ()
 envReader prefixes = remoteReader $ \config -> do
     envMap <- getEnvMap prefixes
-    return $ M.fromList envMap
+    return $ H.fromList envMap
 
 argsReader :: EnvReader ()
 argsReader = remoteReader $ \config -> do
     argMap <- getArgMap
-    return $ M.fromList argMap
+    return $ H.fromList argMap
 
 getConfig :: EnvReader () -> IO Config
-getConfig reader = execStateT reader M.empty
+getConfig reader = execStateT reader H.empty

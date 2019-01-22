@@ -16,8 +16,8 @@ import Fixtures.EnvData
 import Data.Aeson ((.:))
 import qualified Data.Text as T
 import qualified Data.Aeson as A
-import qualified Data.Map.Strict as M
 import qualified Data.Set as S
+import qualified Data.HashMap.Strict as H
 
 jsonFixtureReader :: EnvReader ()
 jsonFixtureReader = jsonFileReader "test/Fixtures/config.json"
@@ -43,27 +43,27 @@ withEnv env = bracket_ (setEnvVars env) (unsetEnvVars env)
 withStubEnv :: IO a -> IO a
 withStubEnv = withEnv stubEnv
 
-shouldHaveKeys :: (Show k, Ord k) => M.Map k v -> [k] -> Expectation
+shouldHaveKeys :: (Show k, Ord k) => H.HashMap k v -> [k] -> Expectation
 actual `shouldHaveKeys` expected = let
         s1 = S.fromList expected
-        s2 = M.keysSet actual
+        s2 = S.fromList $ H.keys actual
         errMsg = show s1 ++ " should be a subset of " ++ show s2
     in unless (s1 `S.isSubsetOf` s2) $ expectationFailure errMsg
 
-shouldNotHaveKeys :: (Show k, Ord k) => M.Map k v -> [k] -> Expectation
+shouldNotHaveKeys :: (Show k, Ord k) => H.HashMap k v -> [k] -> Expectation
 actual `shouldNotHaveKeys` expected = let
         s1 = S.fromList expected
-        s2 = M.keysSet actual
+        s2 = S.fromList $ H.keys actual
         errMsg = show s1 ++ " should be disjoint of " ++ show s2
     in unless (s1 `S.disjoint` s2) $ expectationFailure errMsg
 
-shouldHaveExactKeys :: (Show k, Ord k) => M.Map k v -> [k] -> Expectation
+shouldHaveExactKeys :: (Show k, Ord k) => H.HashMap k v -> [k] -> Expectation
 actual `shouldHaveExactKeys` expected =
-    M.keys actual `shouldMatchList` expected
+    H.keys actual `shouldMatchList` expected
 
 checkKeys :: EnvReader () -> [String] -> Expectation
 checkKeys reader keys = do
-    config <- execStateT reader M.empty
+    config <- execStateT reader H.empty
     config `shouldHaveExactKeys` keys
 
 baseFileKeys :: [String]
@@ -94,10 +94,10 @@ baseIniXmlKeys = [
 
 checkMerged :: [(String, Value)] -> EnvReader () -> [(String, Value)] -> Expectation
 checkMerged previousConfig reader nextConfig = do
-        config <- execStateT reader $ M.fromList previousConfig
+        config <- execStateT reader $ H.fromList previousConfig
         mapM_ (checkMergedValue config) nextConfig
     where
-        checkMergedValue config (k, v) = M.lookup k config `shouldBe` Just v
+        checkMergedValue config (k, v) = H.lookup k config `shouldBe` Just v
 
 newtype SecretData = SecretData { token :: T.Text } 
         deriving (Show, Generic)

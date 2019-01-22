@@ -1,0 +1,10 @@
+import GHC.Generics
+import GHC.Exts
+import Data.HashMap.Strict as H
+import qualified Data.Aeson as A
+
+:set -XOverloadedStrings
+:set -XDataKinds
+:set -XKindSignatures
+:set -XDeriveGeneric
+:set -XMultiParamTypeClasses

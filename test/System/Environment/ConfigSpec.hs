@@ -7,7 +7,7 @@ import System.Environment (withArgs)
 import System.Environment.Config
 import Data.List (isPrefixOf)
 import Control.Monad.State (execStateT)
-import qualified Data.Map.Strict as M
+import qualified Data.HashMap.Strict as H
 
 -- WARNING: 
 -- The tests herein are highly dependent on the state of the environment
@@ -55,11 +55,11 @@ spec = do
         it "should read configuration from an xml file" $
             checkKeys xmlFixtureReader baseIniXmlKeys
         it "should omit the root element from the path" $ do
-            config <- execStateT xmlFixtureReader M.empty
-            M.keys config `shouldNotSatisfy` any (isPrefixOf "application")
+            config <- execStateT xmlFixtureReader H.empty
+            H.keys config `shouldNotSatisfy` any (isPrefixOf "application")
         it "should filter out whitespace-only text nodes" $ do
-            config <- execStateT xmlFixtureReader M.empty
-            M.lookup "extra" config `shouldBe` Nothing
+            config <- execStateT xmlFixtureReader H.empty
+            H.lookup "extra" config `shouldBe` Nothing
         it "should merge with the upstream configuration map" $ let
                 previousConfig = [
                     ("env", String "qa"),
@@ -90,16 +90,16 @@ spec = do
     describe "remoteReader" $ 
         it "should read configuration from a vault" $ let
                 doGetSecret _ = getVaultSecret >>= \mData -> 
-                    return $ M.fromList $ case mData of 
+                    return $ H.fromList $ case mData of 
                         Just t -> [("s3.token", String $ token $ secretData $ vaultData t)]
                         _ -> []
             in do
-                config <- execStateT (remoteReader doGetSecret) M.empty
+                config <- execStateT (remoteReader doGetSecret) H.empty
                 config `shouldHaveExactKeys` ["s3.token"]
 
     describe "envReader" $ do
         it "should read configuration from environment variables" $ do
-            config <- withStubEnv $ execStateT (envReader ["~HS__", "HOST", "PORT"]) M.empty
+            config <- withStubEnv $ execStateT (envReader ["~HS__", "HOST", "PORT"]) H.empty
             config `shouldHaveExactKeys` [
                 "vault_api_key",
                 "db.host",
@@ -107,17 +107,17 @@ spec = do
                 "host",
                 "port"]
         it "should filter out environment variables not listed in the prefix filter" $ do
-            config <- withStubEnv $ execStateT (envReader ["~HS__"]) M.empty
+            config <- withStubEnv $ execStateT (envReader ["~HS__"]) H.empty
             config `shouldHaveKeys` ["vault_api_key", "db.host", "db.port"]
             config `shouldNotHaveKeys` ["foo" , "host" , "port"]
         it "should normalize environment variables to lowercase and dot separators" $ do
-            config <- withStubEnv $ execStateT (envReader ["TOO"]) M.empty
+            config <- withStubEnv $ execStateT (envReader ["TOO"]) H.empty
             config `shouldHaveKeys` ["too.many.underscores"]
 
     describe "argsReader" $ do
         it "should read configuration from command-line args" $ do
-            config <- withArgs stubArgs (execStateT argsReader M.empty)
-            config `shouldBe` M.fromList [
+            config <- withArgs stubArgs (execStateT argsReader H.empty)
+            config `shouldBe` H.fromList [
                   ("api-key", String "foo-bar")
                 , ("foo", Bool True)
                 , ("bar", String "baz")
@@ -127,15 +127,15 @@ spec = do
                 , ("db.port", String "5432")
                 ]
         it "should handle nullary args" $ do
-            config <- withArgs nullaryArgs (execStateT argsReader M.empty)
-            config `shouldBe` M.fromList [
+            config <- withArgs nullaryArgs (execStateT argsReader H.empty)
+            config `shouldBe` H.fromList [
                   ("foo", Bool True)
                 , ("bar", String "baz")
                 , ("quux", Bool True)
                 ]
         it "should normalize argument keys to lowercase and dot separators" $ do
-            config <- withArgs funnyArgs (execStateT argsReader M.empty)
-            config `shouldBe` M.fromList [
+            config <- withArgs funnyArgs (execStateT argsReader H.empty)
+            config `shouldBe` H.fromList [
                   ("arg1", String "val1")
                 , ("db.host", String "127.0.0.1")
                 , ("db.port", String "5432")
