@@ -1,19 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 module System.Environment.Config (
-      Config
-    , EnvReader
+      FlatConfigMap(..)
+    , EnvPairs(..)
     , Value(..)
+    , EnvReader
+    , FromJSON
+    , ToJSON
     , getConfig
     , jsonFileReader
-    , xmlFileReader
     , yamlFileReader
+    , xmlFileReader
     , iniFileReader
     , remoteReader
     , envReader
     , argsReader
-    , getArgMap
-    , getEnvMap
+    , getArgPairs
+    , getEnvPairs
 ) where
 
 import System.Directory (getPermissions, Permissions, readable)
@@ -26,9 +29,12 @@ import Data.Char (toLower, isSpace)
 import Data.List (isPrefixOf, stripPrefix)
 import GHC.Generics
 import Data.Scientific (Scientific, floatingOrInteger)
+import Data.Aeson (Value(..), FromJSON, ToJSON)
 import Data.Aeson.Types (typeMismatch)
 import Text.Read (readMaybe)
 import Data.Maybe (fromMaybe)
+import Data.Either (fromRight)
+import Data.Text.Encoding (decodeUtf8)
 import qualified Data.ByteString.Char8 as B
 import qualified Xeno.DOM as X
 import qualified Data.Vector as V
@@ -38,51 +44,56 @@ import qualified Data.Ini as I
 import qualified Data.Yaml as YL
 import qualified Data.HashMap.Strict as H
 
-data Value = String !T.Text
-           | Double !Double
-           | Integer !Integer
-           | Bool !Bool
-           | Null
-             deriving (Eq, Read, Show, Generic)
+newtype FlatConfigMap = FlatConfigMap { unFlatConfigMap :: H.HashMap String Value }
+    deriving (Show, Generic)
 
-type Config = H.HashMap String Value
-type EnvReader = StateT Config IO
+newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, Value)] }
 
-newtype FlatValueMap = FlatValueMap { runFlatValueMap :: [(String, Value)] }
-    deriving (Show)
+instance Semigroup FlatConfigMap where
+    (<>) (FlatConfigMap c2) (FlatConfigMap c1) = FlatConfigMap $ H.unionWith pickVal c2 c1
+        where 
+            pickVal Null v1 = v1
+            pickVal v2 _ = v2
 
-class A.FromJSON t => FromConfig t where
-    merge :: t -> t -> t
+instance Monoid FlatConfigMap where
+    mempty = FlatConfigMap H.empty            
+    mappend = (<>)
 
-instance A.FromJSON Value where
-    parseJSON s@(A.String _) = return $ mapJsonVal s
-    parseJSON n@(A.Number _) = return $ mapJsonVal n
-    parseJSON b@(A.Bool _) = return $ mapJsonVal b
-    parseJSON n@A.Null = return $ mapJsonVal n
-    parseJSON invalid = typeMismatch "Value" invalid
+instance FromJSON FlatConfigMap where
+    parseJSON o@(Object _) = return $ FlatConfigMap $ H.fromList $ flatten "" (Right "") o []
+    parseJSON a@(Array _) = return $ FlatConfigMap $ H.fromList $ flatten "" (Right "") a []
+    parseJSON invalid = typeMismatch "FlatConfigMap" invalid
 
-instance A.FromJSON FlatValueMap where
-    parseJSON o@(A.Object _) = return $ FlatValueMap $ flatten "" (Right "") o []
-    parseJSON a@(A.Array _) = return $ FlatValueMap $ flatten "" (Right "") a []
-    parseJSON invalid = typeMismatch "[(String, Value)]" invalid
+instance ToJSON X.Node where
+    toJSON node = A.object [
+            ("name", String $ decodeUtf8 $ X.name node),
+            ("attrs", A.object $ toPair <$> X.attributes node),
+            ("contents", A.toJSONList $ X.contents node)]
+        where toPair (k, v) = (decodeUtf8 k, String $ decodeUtf8 v)
 
-mapJsonVal :: A.Value -> Value
-mapJsonVal (A.String s) = String s
-mapJsonVal (A.Number n) = case floatingOrInteger n of
-    Left r -> Double r
-    Right i -> Integer i
-mapJsonVal (A.Bool b) = Bool b
-mapJsonVal A.Null = Null
-mapJsonVal _ = error "use parseJSON to convert aeson arrays and objects"
+instance ToJSON X.Content where
+    toJSON (X.Element node) = A.toJSON node
+    toJSON (X.Text text) = String $ decodeUtf8 text
+    toJSON (X.CData cdata) = String $ decodeUtf8 cdata
 
-vmToConfig :: FlatValueMap -> Config
-vmToConfig = H.fromList . runFlatValueMap
+instance ToJSON EnvPairs where
+    toJSON = A.object . map packKey . unEnvPairs
+        where packKey (k, v) = (T.pack k, v)
 
-flatten :: String -> Either Int T.Text -> A.Value -> [(String, Value)] -> [(String, Value)]
+instance ToJSON I.Ini where
+    toJSON ini = A.object [
+            ("globals", A.object $ toPair <$> I.iniGlobals ini),
+            ("sections", A.object $ H.foldrWithKey toObj [] $ I.iniSections ini)]
+        where toPair (k, v) = (k, String v)
+              toObj section pairs acc = (section, A.object $ toPair <$> pairs) : acc
+        
+type EnvReader s = StateT s IO s
+
+flatten :: String -> Either Int T.Text -> Value -> [(String, Value)] -> [(String, Value)]
 flatten path key val acc = case val of
-        A.Object o -> H.foldrWithKey (flatten (dot path key) . Right) acc o
-        A.Array a -> V.ifoldr (flatten (dot path key) . Left) acc a
-        v -> (lcase $ dot path key, mapJsonVal v) : acc
+        Object o -> H.foldrWithKey (flatten (dot path key) . Right) acc o
+        Array a -> V.ifoldr (flatten (dot path key) . Left) acc a
+        v -> (lcase $ dot path key, v) : acc
     where 
         dot "" (Right k) = T.unpack k
         dot p (Left k) = p ++ '[' : show k ++ "]"
@@ -94,7 +105,12 @@ normalizeKey (c:cs) = toLower c : normalizeKey cs
 normalizeKey [] = []
 
 toVal :: String -> Value
-toVal v = if null v then Bool True else String (T.pack v)
+toVal v = String (T.pack v)
+
+toConfig :: (ToJSON a, FromJSON b) => b -> a -> b
+toConfig def a = case A.fromJSON $ A.toJSON a of
+    A.Success b -> b
+    _ -> def
 
 lcase :: String -> String
 lcase = map toLower
@@ -135,102 +151,58 @@ mapArgs (a1:a2:args) | wantsArg a1 && isArg a2 = argToPair (a1 ++ "=" ++ a2) : m
 mapArgs (arg:args) = argToPair arg : mapArgs args
 mapArgs [] = []
 
-parseVal :: String -> Value
-parseVal v | lcase v == "true" = Bool True
-           | lcase v == "false" = Bool False
-           | otherwise = fromMaybe (String $ T.pack v) $ tryInteger v <|> tryDouble v
-    where 
-        tryInteger v = (readMaybe v :: Maybe Integer) >>= \v' -> return $ Integer v'
-        tryDouble v = (readMaybe v :: Maybe Double) >>= \v' -> return $ Double v'
+getEnvPairs :: [String] -> IO EnvPairs
+getEnvPairs prefixes = getEnvironment >>= return . EnvPairs . filterEnv prefixes
 
-mapIniToConfig :: I.Ini -> [(String, Value)]
-mapIniToConfig ini = let globals = toPair <$> I.iniGlobals ini
-                     in H.foldrWithKey flattenIni globals $ I.iniSections ini
-    where
-        toPair (k, v) = (lcase $ T.unpack k, parseVal $ T.unpack v)
-        dot p (k, v) = (T.concat [p, ".", k], v)
-        flattenIni section pairs acc = foldr ((:) . toPair . dot section) acc pairs
+getArgPairs :: IO EnvPairs
+getArgPairs = getArgs >>= return . EnvPairs . mapArgs
 
-mapXmlToConfig :: X.Node -> [(String, Value)]
-mapXmlToConfig node = let attrPairs = flattenAttrs "" (X.attributes node) []
-                      in flattenContents "" (X.contents node) attrPairs
-    where 
-        dot "" k = k
-        dot p k = B.concat [p, ".", k]
-        flattenNode path node acc = let
-                path' = dot path (X.name node)
-                attrPairs = flattenAttrs path' (X.attributes node) acc
-            in flattenContents path' (X.contents node) attrPairs
-        flattenAttrs path attrs acc = foldr (flattenAttr path) acc attrs
-        flattenAttr path (k, v) acc = (lcase $ B.unpack $ dot path k, parseVal $ B.unpack v) : acc
-        flattenContents path contents acc = foldr (flattenContent path) acc contents
-        flattenContent path content acc = case content of
-            X.Element node -> flattenNode path node acc
-            X.Text text -> if B.all isSpace text then acc
-                else flattenAttr "" (path, text) acc
-            X.CData cdata -> flattenAttr "" (path, cdata) acc
+unifyConfig :: (FromJSON a, Monoid a) => a -> EnvReader a
+unifyConfig c2 = StateT $ \c1 -> let c = c2 <> c1 in return (c, c)
 
-getEnvMap :: [String] -> IO [(String, Value)]
-getEnvMap prefixes = getEnvironment >>= return . filterEnv prefixes
-
-getArgMap :: IO [(String, Value)]
-getArgMap = getArgs >>= return . mapArgs
-
-unifyConfig :: Config -> EnvReader ()
-unifyConfig c2 = StateT $ \c1 ->
-        return ((), H.unionWith pickVal c2 c1)
-    where 
-        pickVal Null v1 = v1
-        pickVal v2 _ = v2
-
-remoteReader :: (Config -> IO Config) -> EnvReader ()
+remoteReader :: (FromJSON a, Monoid a) => (a -> IO a) -> EnvReader a
 remoteReader f = do
     c1 <- get
     c2 <- liftIO $ f c1
     unifyConfig c2
 
-whenReadable :: FilePath -> (Config -> IO Config) -> EnvReader ()
-whenReadable path f = do
+whenReadable :: (FromJSON a, Monoid a) => FilePath -> (a -> IO a) -> EnvReader a
+whenReadable path action = do
     ePerms <- liftIO $ try $ getPermissions path
     case (ePerms :: Either IOException Permissions) of
-        Right perms -> when (readable perms) $ remoteReader f
-        _ -> return ()
+        Right perms -> if readable perms then remoteReader action
+                       else get
+        _ -> get
 
-jsonFileReader :: FilePath -> EnvReader ()
+jsonFileReader :: (FromJSON a, Monoid a) => FilePath -> EnvReader a
 jsonFileReader path = whenReadable path $ \config -> do
-    mValue <- A.decodeFileStrict' path 
-    return $ maybe config vmToConfig (mValue :: Maybe FlatValueMap)
+    eValue <- A.eitherDecodeFileStrict' path 
+    return $ fromRight config eValue -- TODO: error handling
 
-yamlFileReader :: FilePath -> EnvReader ()
+yamlFileReader :: (FromJSON a, Monoid a) => FilePath -> EnvReader a
 yamlFileReader path = whenReadable path $ \config -> do
     eValue <- YL.decodeFileEither path
-    return $ case (eValue :: Either YL.ParseException FlatValueMap) of 
-        Right vm -> vmToConfig vm
-        Left _ -> config -- for now we'll ignore exceptions, TODO: debate error handling API
+    return $ fromRight config eValue -- TODO: error handling
 
-xmlFileReader :: FilePath -> EnvReader ()
+xmlFileReader :: (FromJSON a, Monoid a) => FilePath -> EnvReader a
 xmlFileReader path = whenReadable path $ \config -> do
     eNode <- B.readFile path >>= return . X.parse
-    return $ case eNode of 
-        Right node -> H.fromList $ mapXmlToConfig node
-        Left _ -> config -- again, ignoring exceptions
+    return $ either (const config) (toConfig config) eNode 
 
-iniFileReader :: FilePath -> EnvReader ()
+iniFileReader :: (FromJSON a, Monoid a) => FilePath -> EnvReader a
 iniFileReader path = whenReadable path $ \config -> do
     eIni <- I.readIniFile path
-    return $ case eIni of
-        Right ini -> H.fromList $ mapIniToConfig ini
-        Left _ -> config -- again, ignoring exceptions
+    return $ either (const config) (toConfig config) eIni
 
-envReader :: [String] -> EnvReader ()
+envReader :: (FromJSON a, Monoid a) => [String] -> EnvReader a
 envReader prefixes = remoteReader $ \config -> do
-    envMap <- getEnvMap prefixes
-    return $ H.fromList envMap
+    envPairs <- getEnvPairs prefixes
+    return $ toConfig config envPairs
 
-argsReader :: EnvReader ()
+argsReader :: (FromJSON a, Monoid a) => EnvReader a
 argsReader = remoteReader $ \config -> do
-    argMap <- getArgMap
-    return $ H.fromList argMap
+    argPairs <- getArgPairs
+    return $ toConfig config argPairs
 
-getConfig :: EnvReader () -> IO Config
-getConfig reader = execStateT reader H.empty
+getConfig :: (FromJSON a, Monoid a) => EnvReader a -> IO a
+getConfig reader = execStateT reader mempty
