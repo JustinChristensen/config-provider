@@ -1,3 +1,4 @@
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 module System.Environment.Config (
@@ -17,6 +18,9 @@ module System.Environment.Config (
     , argsReader
     , getArgPairs
     , getEnvPairs
+    , get
+    , getMaybe
+    , getEither
 ) where
 
 import System.Directory (getPermissions, Permissions, readable)
@@ -24,9 +28,10 @@ import System.Environment (lookupEnv, getArgs, getEnvironment)
 import Control.Exception (try, IOException)
 import Control.Monad (when)
 import Control.Applicative ((<|>))
-import Control.Monad.State (StateT(..), execStateT, liftIO, get)
+import Control.Monad.State (StateT(..), execStateT, liftIO)
 import Data.Char (toLower, isSpace)
 import Data.List (isPrefixOf, stripPrefix)
+import Control.Monad.Fail (MonadFail)
 import GHC.Generics
 import Data.Scientific (Scientific, floatingOrInteger)
 import Data.Aeson (Value(..), FromJSON, ToJSON)
@@ -35,6 +40,7 @@ import Text.Read (readMaybe)
 import Data.Maybe (fromMaybe)
 import Data.Either (fromRight)
 import Data.Text.Encoding (decodeUtf8)
+import qualified Control.Monad.State as S (get)
 import qualified Data.ByteString.Char8 as B
 import qualified Xeno.DOM as X
 import qualified Data.Vector as V
@@ -46,6 +52,23 @@ import qualified Data.HashMap.Strict as H
 
 newtype FlatConfigMap = FlatConfigMap { unFlatConfigMap :: H.HashMap String Value }
     deriving (Show, Generic)
+
+getEither :: FromJSON a => String -> FlatConfigMap -> Either String a
+getEither k m = case H.lookup k $ unFlatConfigMap m of
+    Just v -> case A.fromJSON v of
+        A.Success a -> Right a
+        A.Error e -> Left e
+    _ -> Left $ "key " ++ k ++ " not found in configuration"
+
+getMaybe :: FromJSON a => String -> FlatConfigMap -> Maybe a
+getMaybe k m = case getEither k m of
+    Right v -> Just v
+    Left _ -> Nothing
+
+get :: forall a m. (MonadFail m, FromJSON a) => String -> FlatConfigMap -> m a
+get k m = case getEither k m of
+    Right v -> return v
+    Left e -> fail e
 
 newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, Value)] }
 
@@ -162,7 +185,7 @@ unifyConfig c2 = StateT $ \c1 -> let c = c2 <> c1 in return (c, c)
 
 remoteReader :: (FromJSON a, Monoid a) => (a -> IO a) -> EnvReader a
 remoteReader f = do
-    c1 <- get
+    c1 <- S.get
     c2 <- liftIO $ f c1
     unifyConfig c2
 
@@ -171,8 +194,8 @@ whenReadable path action = do
     ePerms <- liftIO $ try $ getPermissions path
     case (ePerms :: Either IOException Permissions) of
         Right perms -> if readable perms then remoteReader action
-                       else get
-        _ -> get
+                       else S.get
+        _ -> S.get
 
 jsonFileReader :: (FromJSON a, Monoid a) => FilePath -> EnvReader a
 jsonFileReader path = whenReadable path $ \config -> do

@@ -1,12 +1,12 @@
+{-# LANGUAGE TypeApplications #-}
 module Main where
 
-import System.Environment.Config.Default (getConfig)
-
--- https://downloads.haskell.org/~ghc/8.4.4/docs/html/users_guide/glasgow_exts.html#multi-parameter-type-classes
--- https://downloads.haskell.org/~ghc/8.4.4/docs/html/users_guide/glasgow_exts.html#extension-MultiParamTypeClasses
--- https://github.com/bos/aeson/blob/master/Data/Aeson/Types/ToJSON.hs#L703 
--- https://github.com/bos/aeson/blob/master/Data/Aeson/Types/ToJSON.hs#L1089
--- https://github.com/bos/aeson/blob/master/Data/Aeson/Types/ToJSON.hs#L2814
+import System.Environment.Config.Default (getConfig, get)
 
 main :: IO ()
-main = getConfig >>= print
+main = do
+    config <- getConfig
+    host <- get @String "host" config
+    port <- get @Integer "port" config
+    env <- get @String "env" config
+    putStrLn $ "Host: " ++ host ++ ", Port: " ++ show port ++ ", Env: " ++ env
