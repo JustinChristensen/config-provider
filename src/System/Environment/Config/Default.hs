@@ -49,7 +49,7 @@ getEnvName = let
             String s -> Just $ T.unpack s
             _ -> Nothing
 
-appFileReader :: (HasEnv a, FromJSON a, Monoid a) => EnvReader a
+appFileReader :: (HasEnv a, FromJSON a, Semigroup a) => EnvReader a
 appFileReader = let 
         readEnvFile env = jsonFileReader $ "app." ++ env ++ ".json"
     in do
@@ -58,7 +58,7 @@ appFileReader = let
         fEnv <- gets env
         maybe S.get readEnvFile $ mEnv <|> fEnv
 
-defaultReader :: (HasEnv a, FromJSON a, Monoid a) => EnvReader a
+defaultReader :: (HasEnv a, FromJSON a, Semigroup a) => EnvReader a
 defaultReader = do
     appFileReader
     envReader envPrefixFilter

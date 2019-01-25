@@ -180,16 +180,16 @@ getEnvPairs prefixes = getEnvironment >>= return . EnvPairs . filterEnv prefixes
 getArgPairs :: IO EnvPairs
 getArgPairs = getArgs >>= return . EnvPairs . mapArgs
 
-unifyConfig :: (FromJSON a, Monoid a) => a -> EnvReader a
+unifyConfig :: (FromJSON a, Semigroup a) => a -> EnvReader a
 unifyConfig c2 = StateT $ \c1 -> let c = c2 <> c1 in return (c, c)
 
-remoteReader :: (FromJSON a, Monoid a) => (a -> IO a) -> EnvReader a
+remoteReader :: (FromJSON a, Semigroup a) => (a -> IO a) -> EnvReader a
 remoteReader f = do
     c1 <- S.get
     c2 <- liftIO $ f c1
     unifyConfig c2
 
-whenReadable :: (FromJSON a, Monoid a) => FilePath -> (a -> IO a) -> EnvReader a
+whenReadable :: (FromJSON a, Semigroup a) => FilePath -> (a -> IO a) -> EnvReader a
 whenReadable path action = do
     ePerms <- liftIO $ try $ getPermissions path
     case (ePerms :: Either IOException Permissions) of
@@ -197,32 +197,32 @@ whenReadable path action = do
                        else S.get
         _ -> S.get
 
-jsonFileReader :: (FromJSON a, Monoid a) => FilePath -> EnvReader a
+jsonFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
 jsonFileReader path = whenReadable path $ \config -> do
     eValue <- A.eitherDecodeFileStrict' path 
     return $ fromRight config eValue -- TODO: error handling
 
-yamlFileReader :: (FromJSON a, Monoid a) => FilePath -> EnvReader a
+yamlFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
 yamlFileReader path = whenReadable path $ \config -> do
     eValue <- YL.decodeFileEither path
     return $ fromRight config eValue -- TODO: error handling
 
-xmlFileReader :: (FromJSON a, Monoid a) => FilePath -> EnvReader a
+xmlFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
 xmlFileReader path = whenReadable path $ \config -> do
     eNode <- B.readFile path >>= return . X.parse
     return $ either (const config) (toConfig config) eNode 
 
-iniFileReader :: (FromJSON a, Monoid a) => FilePath -> EnvReader a
+iniFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
 iniFileReader path = whenReadable path $ \config -> do
     eIni <- I.readIniFile path
     return $ either (const config) (toConfig config) eIni
 
-envReader :: (FromJSON a, Monoid a) => [String] -> EnvReader a
+envReader :: (FromJSON a, Semigroup a) => [String] -> EnvReader a
 envReader prefixes = remoteReader $ \config -> do
     envPairs <- getEnvPairs prefixes
     return $ toConfig config envPairs
 
-argsReader :: (FromJSON a, Monoid a) => EnvReader a
+argsReader :: (FromJSON a, Semigroup a) => EnvReader a
 argsReader = remoteReader $ \config -> do
     argPairs <- getArgPairs
     return $ toConfig config argPairs
