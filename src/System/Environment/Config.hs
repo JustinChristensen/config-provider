@@ -19,8 +19,8 @@ module System.Environment.Config (
     , getArgPairs
     , getEnvPairs
     , get
-    , getMaybe
-    , getEither
+    , getM
+    , getE
 ) where
 
 import System.Directory (getPermissions, Permissions, readable)
@@ -53,20 +53,20 @@ import qualified Data.HashMap.Strict as H
 newtype FlatConfigMap = FlatConfigMap { unFlatConfigMap :: H.HashMap String Value }
     deriving (Show, Generic)
 
-getEither :: FromJSON a => String -> FlatConfigMap -> Either String a
-getEither k m = case H.lookup k $ unFlatConfigMap m of
+getE :: FromJSON a => String -> FlatConfigMap -> Either String a
+getE k m = case H.lookup k $ unFlatConfigMap m of
     Just v -> case A.fromJSON v of
         A.Success a -> Right a
         A.Error e -> Left e
     _ -> Left $ "key " ++ k ++ " not found in configuration"
 
-getMaybe :: FromJSON a => String -> FlatConfigMap -> Maybe a
-getMaybe k m = case getEither k m of
+getM :: FromJSON a => String -> FlatConfigMap -> Maybe a
+getM k m = case getE k m of
     Right v -> Just v
     Left _ -> Nothing
 
 get :: forall a m. (MonadFail m, FromJSON a) => String -> FlatConfigMap -> m a
-get k m = case getEither k m of
+get k m = case getE k m of
     Right v -> return v
     Left e -> fail e
 
@@ -128,7 +128,7 @@ normalizeKey (c:cs) = toLower c : normalizeKey cs
 normalizeKey [] = []
 
 toVal :: String -> Value
-toVal v = String (T.pack v)
+toVal v = fromMaybe (String $ T.pack v) $ A.decodeStrict' (B.pack v)
 
 toConfig :: (ToJSON a, FromJSON b) => b -> a -> b
 toConfig def a = case A.fromJSON $ A.toJSON a of

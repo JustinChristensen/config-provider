@@ -1,12 +1,8 @@
-{-# LANGUAGE TypeApplications #-}
 module Main where
 
-import System.Environment.Config.Default (getConfig, get)
+import System.Environment.Config.Default
 
 main :: IO ()
 main = do
-    config <- getConfig
-    host <- get @String "host" config
-    port <- get @Integer "port" config
-    env <- get @String "env" config
-    putStrLn $ "Host: " ++ host ++ ", Port: " ++ show port ++ ", Env: " ++ env
+    config <- getConfig 
+    print (config :: FlatConfigMap)

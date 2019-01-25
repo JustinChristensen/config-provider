@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module System.Environment.Config.Default (
       FlatConfigMap(..)
     , Value(..)
@@ -10,8 +11,8 @@ module System.Environment.Config.Default (
     , appFileReader
     , defaultReader
     , get
-    , getMaybe
-    , getEither
+    , getM
+    , getE
 ) where
 
 import Control.Monad.State (liftIO, gets)
@@ -26,7 +27,7 @@ class HasEnv a where
     env :: a -> Maybe String
 
 instance HasEnv FlatConfigMap where
-    env = getMaybe envNameVar
+    env = getM envNameVar
 
 envNameVar :: String
 envNameVar = "env"
@@ -45,7 +46,7 @@ getEnvName = let
     in do
         am <- getArgPairs >>= return . unEnvPairs
         em <- getEnvPairs envPrefixFilter >>= return . unEnvPairs
-        return $ lookup e am <|> lookup e em >>= \v -> case v of
+        return $ lookup e am <|> lookup e em >>= \case
             String s -> Just $ T.unpack s
             _ -> Nothing
 
@@ -58,11 +59,11 @@ appFileReader = let
         fEnv <- gets env
         maybe S.get readEnvFile $ mEnv <|> fEnv
 
-defaultReader :: (HasEnv a, FromJSON a, Semigroup a) => EnvReader a
+defaultReader :: (HasEnv a, FromJSON a, Semigroup a, Show a) => EnvReader a
 defaultReader = do
-    appFileReader
+    appFileReader 
     envReader envPrefixFilter
     argsReader
 
-getConfig :: (HasEnv a, FromJSON a, Monoid a) => IO a
+getConfig :: (HasEnv a, FromJSON a, Monoid a, Show a) => IO a
 getConfig = C.getConfig defaultReader
