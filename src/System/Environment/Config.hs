@@ -51,7 +51,7 @@ import qualified Data.Yaml as YL
 import qualified Data.HashMap.Strict as H
 
 newtype FlatConfigMap = FlatConfigMap { unFlatConfigMap :: H.HashMap String Value }
-    deriving (Show, Generic)
+    deriving (Show, Eq, Generic)
 
 getE :: FromJSON a => String -> FlatConfigMap -> Either String a
 getE k m = case H.lookup k $ unFlatConfigMap m of
@@ -68,7 +68,7 @@ getM k m = case getE k m of
 get :: forall a m. (MonadFail m, FromJSON a) => String -> FlatConfigMap -> m a
 get k m = case getE k m of
     Right v -> return v
-    Left e -> fail e
+    Left e -> fail $ k ++ ", " ++ e
 
 newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, Value)] }
 
@@ -104,10 +104,10 @@ instance ToJSON EnvPairs where
         where packKey (k, v) = (T.pack k, v)
 
 instance ToJSON I.Ini where
-    toJSON ini = A.object [
-            ("globals", A.object $ toPair <$> I.iniGlobals ini),
-            ("sections", A.object $ H.foldrWithKey toObj [] $ I.iniSections ini)]
-        where toPair (k, v) = (k, String v)
+    toJSON ini = let globals = toPair <$> I.iniGlobals ini
+                     sections = H.foldrWithKey toObj [] $ I.iniSections ini
+                 in A.object $ sections ++ globals
+        where toPair (k, v) = (k, toVal $ Left $ T.unpack v)
               toObj section pairs acc = (section, A.object $ toPair <$> pairs) : acc
         
 type EnvReader s = StateT s IO s
@@ -127,8 +127,9 @@ normalizeKey ('_':'_':cs) = '.' : normalizeKey (dropWhile (== '_') cs)
 normalizeKey (c:cs) = toLower c : normalizeKey cs
 normalizeKey [] = []
 
-toVal :: String -> Value
-toVal v = fromMaybe (String $ T.pack v) $ A.decodeStrict' (B.pack v)
+toVal :: Either String B.ByteString -> Value
+toVal (Left v) = toVal $ Right $ B.pack v
+toVal (Right v) = fromMaybe (String $ decodeUtf8 v) $ A.decodeStrict' v
 
 toConfig :: (ToJSON a, FromJSON b) => b -> a -> b
 toConfig def a = case A.fromJSON $ A.toJSON a of
@@ -153,7 +154,7 @@ filterEnv prefixes env = map envPair $ filter keyMatchesPrefix env
                 stripLongestPrefix lk = fromMaybe lk $ 
                     foldr (isLongestMatched lk) Nothing prefixes >>= \p ->
                         stripPrefix (lcase p) lk
-            in (normalizeKey $ stripLongestPrefix $ lcase k, toVal v)
+            in (normalizeKey $ stripLongestPrefix $ lcase k, toVal $ Left v)
 
 argToPair :: String -> (String, Value)
 argToPair ('-':'-':arg) = argToPair arg
@@ -162,8 +163,8 @@ argToPair arg = splitAtChar '=' arg
         splitAtChar c str = let
                 key = normalizeKey $ takeWhile (/= c) str
                 val = case dropWhile (/= c) str of
-                    "" -> toVal ""
-                    cs -> toVal $ tail cs
+                    "" -> toVal $ Left ""
+                    cs -> toVal $ Left $ tail cs
             in (key, val)
 
 mapArgs :: [String] -> [(String, Value)]
