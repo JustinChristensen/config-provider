@@ -6,6 +6,6 @@
             <timeout>95959</timeout>
         </policies>
     </DB>
-    <vault api_key="xml-file-api-key" />
+    <vault name="extern" api_key="xml-file-api-key" />
     <extra>      </extra>
 </application>

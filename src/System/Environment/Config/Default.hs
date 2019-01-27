@@ -21,7 +21,6 @@ import Control.Applicative ((<|>))
 import qualified Control.Monad.State as S (get)
 import qualified System.Environment.Config as C (getConfig)
 import qualified Data.Text as T
-import qualified Data.HashMap.Strict as H
 
 class HasEnv a where
     env :: a -> Maybe String
@@ -52,7 +51,7 @@ getEnvName = let
 
 appFileReader :: (HasEnv a, FromJSON a, Semigroup a) => EnvReader a
 appFileReader = let 
-        readEnvFile env = jsonFileReader $ "app." ++ env ++ ".json"
+        readEnvFile e = jsonFileReader $ "app." ++ e ++ ".json"
     in do
         jsonFileReader "app.json"
         mEnv <- liftIO getEnvName

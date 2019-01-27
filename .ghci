@@ -9,3 +9,4 @@ import qualified Data.Ini as I
 :set -XKindSignatures
 :set -XDeriveGeneric
 :set -XMultiParamTypeClasses
+:set -XTypeApplications

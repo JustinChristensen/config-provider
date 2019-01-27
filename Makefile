@@ -5,7 +5,7 @@ EX_SCOTTY := examples/scotty
 all: build
 
 build: 
-	cabal v2-build
+	cabal v2-build lib:$(PROG)
 
 scotty-ex: 
 	cd $(EX_SCOTTY) && cabal v2-build

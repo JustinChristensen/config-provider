@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -24,19 +25,15 @@ module System.Environment.Config (
 ) where
 
 import System.Directory (getPermissions, Permissions, readable)
-import System.Environment (lookupEnv, getArgs, getEnvironment)
+import System.Environment (getArgs, getEnvironment)
 import Control.Exception (try, IOException)
-import Control.Monad (when)
-import Control.Applicative ((<|>))
 import Control.Monad.State (StateT(..), execStateT, liftIO)
 import Data.Char (toLower, isSpace)
 import Data.List (isPrefixOf, stripPrefix)
 import Control.Monad.Fail (MonadFail)
 import GHC.Generics
-import Data.Scientific (Scientific, floatingOrInteger)
 import Data.Aeson (Value(..), FromJSON, ToJSON)
 import Data.Aeson.Types (typeMismatch)
-import Text.Read (readMaybe)
 import Data.Maybe (fromMaybe)
 import Data.Either (fromRight)
 import Data.Text.Encoding (decodeUtf8)
@@ -49,6 +46,11 @@ import qualified Data.Aeson as A
 import qualified Data.Ini as I
 import qualified Data.Yaml as YL
 import qualified Data.HashMap.Strict as H
+
+newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, Value)] }
+newtype Node = Node X.Node
+newtype Content = Content X.Content
+newtype Ini = Ini I.Ini
 
 newtype FlatConfigMap = FlatConfigMap { unFlatConfigMap :: H.HashMap String Value }
     deriving (Show, Eq, Generic)
@@ -70,16 +72,14 @@ get k m = case getE k m of
     Right v -> return v
     Left e -> fail $ k ++ ", " ++ e
 
-newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, Value)] }
-
 instance Semigroup FlatConfigMap where
     (<>) (FlatConfigMap c2) (FlatConfigMap c1) = FlatConfigMap $ H.unionWith pickVal c2 c1
-        where 
+        where
             pickVal Null v1 = v1
             pickVal v2 _ = v2
 
 instance Monoid FlatConfigMap where
-    mempty = FlatConfigMap H.empty            
+    mempty = FlatConfigMap H.empty
     mappend = (<>)
 
 instance FromJSON FlatConfigMap where
@@ -87,29 +87,33 @@ instance FromJSON FlatConfigMap where
     parseJSON a@(Array _) = return $ FlatConfigMap $ H.fromList $ flatten "" (Right "") a []
     parseJSON invalid = typeMismatch "FlatConfigMap" invalid
 
-instance ToJSON X.Node where
-    toJSON node = A.object [
-            ("name", String $ decodeUtf8 $ X.name node),
-            ("attrs", A.object $ toPair <$> X.attributes node),
-            ("contents", A.toJSONList $ X.contents node)]
-        where toPair (k, v) = (decodeUtf8 k, String $ decodeUtf8 v)
+instance ToJSON Node where
+    toJSON (Node node) = let contents = A.toJSON <$> (Content <$> skipWhitespace (X.contents node))
+                             attrs = A.object $ toAttrPair <$> X.attributes node
+                         in A.object [(textName node, toArr $ contents ++ [attrs])]
+        where toArr = Array . V.fromList
+              textName = decodeUtf8 . X.name
+              toAttrPair (k, v) = (decodeUtf8 k, toVal $ Right v)
+              skipWhitespace = filter (\case
+                X.Text text -> B.all (not . isSpace) text
+                _ -> True)
 
-instance ToJSON X.Content where
-    toJSON (X.Element node) = A.toJSON node
-    toJSON (X.Text text) = String $ decodeUtf8 text
-    toJSON (X.CData cdata) = String $ decodeUtf8 cdata
+instance ToJSON Content where
+    toJSON (Content (X.Element node)) = A.toJSON (Node node)
+    toJSON (Content (X.Text text)) = toVal $ Right text
+    toJSON (Content (X.CData cdata)) = String $ decodeUtf8 cdata
 
 instance ToJSON EnvPairs where
     toJSON = A.object . map packKey . unEnvPairs
         where packKey (k, v) = (T.pack k, v)
 
-instance ToJSON I.Ini where
-    toJSON ini = let globals = toPair <$> I.iniGlobals ini
-                     sections = H.foldrWithKey toObj [] $ I.iniSections ini
-                 in A.object $ sections ++ globals
+instance ToJSON Ini where
+    toJSON (Ini ini) = let globals = toPair <$> I.iniGlobals ini
+                           sections = H.foldrWithKey toObj [] $ I.iniSections ini
+                       in A.object $ sections ++ globals
         where toPair (k, v) = (k, toVal $ Left $ T.unpack v)
               toObj section pairs acc = (section, A.object $ toPair <$> pairs) : acc
-        
+
 type EnvReader s = StateT s IO s
 
 flatten :: String -> Either Int T.Text -> Value -> [(String, Value)] -> [(String, Value)]
@@ -117,7 +121,7 @@ flatten path key val acc = case val of
         Object o -> H.foldrWithKey (flatten (dot path key) . Right) acc o
         Array a -> V.ifoldr (flatten (dot path key) . Left) acc a
         v -> (lcase $ dot path key, v) : acc
-    where 
+    where
         dot "" (Right k) = T.unpack k
         dot p (Left k) = p ++ '[' : show k ++ "]"
         dot p (Right k) = p ++ '.' : T.unpack k
@@ -145,13 +149,13 @@ filterEnv prefixes env = map envPair $ filter keyMatchesPrefix env
         keyMatchesPrefix (k, _) = any ((`isPrefixOf` lcase k) . tailIfTilde . lcase) prefixes
         tailIfTilde ('~':cs) = cs
         tailIfTilde cs = cs
-        envPair (k, v) = let    
+        envPair (k, v) = let
                 isLongestMatched lk ('~':p) Nothing  | lcase p `isPrefixOf` lk = Just p
                                                      | otherwise = Nothing
                 isLongestMatched lk ('~':p) (Just l) | lcase p `isPrefixOf` lk && length p > length l = Just p
                                                      | otherwise = Just l
-                isLongestMatched lk _ l = l
-                stripLongestPrefix lk = fromMaybe lk $ 
+                isLongestMatched _ _ l = l
+                stripLongestPrefix lk = fromMaybe lk $
                     foldr (isLongestMatched lk) Nothing prefixes >>= \p ->
                         stripPrefix (lcase p) lk
             in (normalizeKey $ stripLongestPrefix $ lcase k, toVal $ Left v)
@@ -200,7 +204,7 @@ whenReadable path action = do
 
 jsonFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
 jsonFileReader path = whenReadable path $ \config -> do
-    eValue <- A.eitherDecodeFileStrict' path 
+    eValue <- A.eitherDecodeFileStrict' path
     return $ fromRight config eValue -- TODO: error handling
 
 yamlFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
@@ -211,12 +215,12 @@ yamlFileReader path = whenReadable path $ \config -> do
 xmlFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
 xmlFileReader path = whenReadable path $ \config -> do
     eNode <- B.readFile path >>= return . X.parse
-    return $ either (const config) (toConfig config) eNode 
+    return $ either (const config) (toConfig config) (Node <$> eNode)
 
 iniFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
 iniFileReader path = whenReadable path $ \config -> do
     eIni <- I.readIniFile path
-    return $ either (const config) (toConfig config) eIni
+    return $ either (const config) (toConfig config) (Ini <$> eIni)
 
 envReader :: (FromJSON a, Semigroup a) => [String] -> EnvReader a
 envReader prefixes = remoteReader $ \config -> do
