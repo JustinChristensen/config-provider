@@ -72,6 +72,9 @@ get k m = case getE k m of
     Right v -> return v
     Left e -> fail $ k ++ ", " ++ e
 
+flatConfigMap :: Value -> FlatConfigMap
+flatConfigMap v = FlatConfigMap $ H.fromList $ flatten "" (Right "") v []
+
 instance Semigroup FlatConfigMap where
     (<>) (FlatConfigMap c2) (FlatConfigMap c1) = FlatConfigMap $ H.unionWith pickVal c2 c1
         where
@@ -83,20 +86,22 @@ instance Monoid FlatConfigMap where
     mappend = (<>)
 
 instance FromJSON FlatConfigMap where
-    parseJSON o@(Object _) = return $ FlatConfigMap $ H.fromList $ flatten "" (Right "") o []
-    parseJSON a@(Array _) = return $ FlatConfigMap $ H.fromList $ flatten "" (Right "") a []
+    parseJSON o@(Object _) = return $ flatConfigMap o
+    parseJSON a@(Array _) = return $ flatConfigMap a
     parseJSON invalid = typeMismatch "FlatConfigMap" invalid
 
+nodeArray :: Node -> Value
+nodeArray (Node node) = let contents = A.toJSON <$> (Content <$> skipWhitespace (X.contents node))
+                            attrs = A.object $ toAttrPair <$> X.attributes node
+                        in toArr $ contents ++ [attrs]
+    where toArr = Array . V.fromList
+          toAttrPair (k, v) = (decodeUtf8 k, toVal $ Right v)
+          skipWhitespace = filter (\case
+              X.Text text -> B.all (not . isSpace) text
+              _ -> True)
+
 instance ToJSON Node where
-    toJSON (Node node) = let contents = A.toJSON <$> (Content <$> skipWhitespace (X.contents node))
-                             attrs = A.object $ toAttrPair <$> X.attributes node
-                         in A.object [(textName node, toArr $ contents ++ [attrs])]
-        where toArr = Array . V.fromList
-              textName = decodeUtf8 . X.name
-              toAttrPair (k, v) = (decodeUtf8 k, toVal $ Right v)
-              skipWhitespace = filter (\case
-                X.Text text -> B.all (not . isSpace) text
-                _ -> True)
+    toJSON n@(Node node) = A.object [(decodeUtf8 $ X.name node, nodeArray n)]
 
 instance ToJSON Content where
     toJSON (Content (X.Element node)) = A.toJSON (Node node)
@@ -116,15 +121,26 @@ instance ToJSON Ini where
 
 type EnvReader s = StateT s IO s
 
+dot :: String -> Either Int T.Text -> String
+dot "" (Right k) = T.unpack k
+dot p (Left k) = p ++ '[' : show k ++ "]"
+dot p (Right k) = p ++ '.' : T.unpack k
+
 flatten :: String -> Either Int T.Text -> Value -> [(String, Value)] -> [(String, Value)]
 flatten path key val acc = case val of
-        Object o -> H.foldrWithKey (flatten (dot path key) . Right) acc o
-        Array a -> V.ifoldr (flatten (dot path key) . Left) acc a
-        v -> (lcase $ dot path key, v) : acc
-    where
-        dot "" (Right k) = T.unpack k
-        dot p (Left k) = p ++ '[' : show k ++ "]"
-        dot p (Right k) = p ++ '.' : T.unpack k
+    Object o -> H.foldrWithKey (flatten (dot path key) . Right) acc o
+    Array a -> flattenArray path key a acc
+    v -> (lcase $ dot path key, v) : acc
+
+-- TODO: define merging behavior for arrays
+flattenArray :: String -> Either Int T.Text -> A.Array -> [(String, Value)] -> [(String, Value)]
+flattenArray path key arr acc = if hasObjects arr then
+            V.foldr (flatten path key) acc arr
+        else 
+            V.ifoldr (flatten (dot path key) . Left) acc arr
+    where hasObjects = V.any isObject
+          isObject (Object _) = True
+          isObject _ = False
 
 normalizeKey :: String -> String
 normalizeKey ('_':'_':cs) = '.' : normalizeKey (dropWhile (== '_') cs)
@@ -135,10 +151,13 @@ toVal :: Either String B.ByteString -> Value
 toVal (Left v) = toVal $ Right $ B.pack v
 toVal (Right v) = fromMaybe (String $ decodeUtf8 v) $ A.decodeStrict' v
 
-toConfig :: (ToJSON a, FromJSON b) => b -> a -> b
-toConfig def a = case A.fromJSON $ A.toJSON a of
+toConfigWith :: (ToJSON a, FromJSON b) => (a -> Value) -> b -> a -> b
+toConfigWith fn def a = case A.fromJSON $ fn a of
     A.Success b -> b
     _ -> def
+
+toConfig :: (ToJSON a, FromJSON b) => b -> a -> b
+toConfig = toConfigWith A.toJSON
 
 lcase :: String -> String
 lcase = map toLower
@@ -215,7 +234,7 @@ yamlFileReader path = whenReadable path $ \config -> do
 xmlFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
 xmlFileReader path = whenReadable path $ \config -> do
     eNode <- B.readFile path >>= return . X.parse
-    return $ either (const config) (toConfig config) (Node <$> eNode)
+    return $ either (const config) (toConfigWith nodeArray config) (Node <$> eNode)
 
 iniFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
 iniFileReader path = whenReadable path $ \config -> do
