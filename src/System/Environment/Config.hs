@@ -20,7 +20,6 @@ module System.Environment.Config (
     , getArgPairs
     , getEnvPairs
     , get
-    , getM
     , getE
 ) where
 
@@ -61,11 +60,6 @@ getE k m = case H.lookup k $ unFlatConfigMap m of
         A.Success a -> Right a
         A.Error e -> Left e
     _ -> Left $ "key " ++ k ++ " not found in configuration"
-
-getM :: FromJSON a => String -> FlatConfigMap -> Maybe a
-getM k m = case getE k m of
-    Right v -> Just v
-    Left _ -> Nothing
 
 get :: forall a m. (MonadFail m, FromJSON a) => String -> FlatConfigMap -> m a
 get k m = case getE k m of

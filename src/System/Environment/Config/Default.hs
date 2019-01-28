@@ -11,7 +11,6 @@ module System.Environment.Config.Default (
     , appFileReader
     , defaultReader
     , get
-    , getM
     , getE
 ) where
 
@@ -26,7 +25,7 @@ class HasEnv a where
     env :: a -> Maybe String
 
 instance HasEnv FlatConfigMap where
-    env = getM envNameVar
+    env = get envNameVar
 
 envNameVar :: String
 envNameVar = "env"
