@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 module System.Environment.Config (
       FlatConfigMap(..)
+    , ConfigGetException(..)
     , EnvPairs(..)
     , Value(..)
     , EnvReader
@@ -23,18 +24,18 @@ module System.Environment.Config (
     , getE
 ) where
 
+import Control.Exception (IOException)
+import Control.Monad.Catch
 import System.Directory (getPermissions, Permissions, readable)
 import System.Environment (getArgs, getEnvironment)
-import Control.Exception (try, IOException)
 import Control.Monad.State (StateT(..), execStateT, liftIO)
 import Data.Char (toLower, isSpace)
 import Data.List (isPrefixOf, stripPrefix)
-import Control.Monad.Fail (MonadFail)
 import GHC.Generics
 import Data.Aeson (Value(..), FromJSON, ToJSON)
 import Data.Aeson.Types (typeMismatch)
 import Data.Maybe (fromMaybe)
-import Data.Either (fromRight)
+import Data.Either (fromRight, either)
 import Data.Text.Encoding (decodeUtf8)
 import qualified Control.Monad.State as S (get)
 import qualified Data.ByteString.Char8 as B
@@ -54,20 +55,15 @@ newtype Ini = Ini I.Ini
 newtype FlatConfigMap = FlatConfigMap { unFlatConfigMap :: H.HashMap String Value }
     deriving (Show, Eq, Generic)
 
-getE :: FromJSON a => String -> FlatConfigMap -> Either String a
-getE k m = case H.lookup k $ unFlatConfigMap m of
-    Just v -> case A.fromJSON v of
-        A.Success a -> Right a
-        A.Error e -> Left e
-    _ -> Left $ "key " ++ k ++ " not found in configuration"
+data ConfigGetException = KeyNotFound String | ParseFailed String 
+    deriving (Show)
 
-get :: forall a m. (MonadFail m, FromJSON a) => String -> FlatConfigMap -> m a
-get k m = case getE k m of
-    Right v -> return v
-    Left e -> fail $ k ++ ", " ++ e
+type EnvReader s = StateT s IO s
 
-flatConfigMap :: Value -> FlatConfigMap
-flatConfigMap v = FlatConfigMap $ H.fromList $ flatten "" (Right "") v []
+instance Exception ConfigGetException where
+    displayException e = case e of
+        KeyNotFound k -> "key " ++ k ++ " not found in configuration"
+        ParseFailed s -> s
 
 instance Semigroup FlatConfigMap where
     (<>) (FlatConfigMap c2) (FlatConfigMap c1) = FlatConfigMap $ H.unionWith pickVal c2 c1
@@ -83,16 +79,6 @@ instance FromJSON FlatConfigMap where
     parseJSON o@(Object _) = return $ flatConfigMap o
     parseJSON a@(Array _) = return $ flatConfigMap a
     parseJSON invalid = typeMismatch "FlatConfigMap" invalid
-
-nodeArray :: Node -> Value
-nodeArray (Node node) = let contents = A.toJSON <$> (Content <$> skipWhitespace (X.contents node))
-                            attrs = A.object $ toAttrPair <$> X.attributes node
-                        in toArr $ contents ++ [attrs]
-    where toArr = Array . V.fromList
-          toAttrPair (k, v) = (decodeUtf8 k, toVal $ Right v)
-          skipWhitespace = filter (\case
-              X.Text text -> B.all (not . isSpace) text
-              _ -> True)
 
 instance ToJSON Node where
     toJSON n@(Node node) = A.object [(decodeUtf8 $ X.name node, nodeArray n)]
@@ -113,7 +99,28 @@ instance ToJSON Ini where
         where toPair (k, v) = (k, toVal $ Left $ T.unpack v)
               toObj section pairs acc = (section, A.object $ toPair <$> pairs) : acc
 
-type EnvReader s = StateT s IO s
+getE :: FromJSON a => String -> FlatConfigMap -> Either ConfigGetException a
+getE k m = case H.lookup k $ unFlatConfigMap m of
+    Just v -> case A.fromJSON v of
+        A.Success a -> Right a
+        A.Error e -> Left $ ParseFailed e
+    _ -> Left $ KeyNotFound k
+
+get :: forall a m. (MonadThrow m, FromJSON a) => String -> FlatConfigMap -> m a
+get k m = either throwM return $ getE k m
+
+flatConfigMap :: Value -> FlatConfigMap
+flatConfigMap v = FlatConfigMap $ H.fromList $ flatten "" (Right "") v []
+
+nodeArray :: Node -> Value
+nodeArray (Node node) = let contents = A.toJSON <$> (Content <$> skipWhitespace (X.contents node))
+                            attrs = A.object $ toAttrPair <$> X.attributes node
+                        in toArr $ contents ++ [attrs]
+    where toArr = Array . V.fromList
+          toAttrPair (k, v) = (decodeUtf8 k, toVal $ Right v)
+          skipWhitespace = filter (\case
+              X.Text text -> B.all (not . isSpace) text
+              _ -> True)
 
 dot :: String -> Either Int T.Text -> String
 dot "" (Right k) = T.unpack k
