@@ -1,6 +1,12 @@
 PROG := config-provider
 TEST_PROG := config-provider-test
 EX_SCOTTY := examples/scotty
+SEP := ======================================================================
+EXPORT_FMT := '\n$(SEP)\n %s\n$(SEP)\n'
+EXPORT_ARGS := -ignore-dot-ghci \
+-e ':m + System.Environment.Config.Types' \
+-e ':m + Control.Monad.Catch' \
+-e ':m + Control.Monad.Catch'
 
 all: build
 
@@ -18,6 +24,14 @@ run-scotty-ex:
 
 test: 
 	cabal v2-run $(TEST_PROG) --enable-tests
+
+module-exports:
+	@printf $(EXPORT_FMT) 'System.Environment.Config'
+	@ghci $(EXPORT_ARGS) -e ':m + System.Environment.Config' -e ':browse System.Environment.Config'
+	@printf $(EXPORT_FMT) 'System.Environment.Config.Default'
+	@ghci $(EXPORT_ARGS) -e ':m + System.Environment.Config.Default' -e ':browse System.Environment.Config.Default'
+	@printf $(EXPORT_FMT) 'System.Environment.Config.Types'
+	@ghci $(EXPORT_ARGS) -e ':browse System.Environment.Config.Types'
 
 # use v2-test for this, because version 2.4.1.0 of cabal behaves oddly when using 
 # it with v2-run
@@ -49,4 +63,5 @@ coverage \
 dev-deps \
 run \
 scotty-ex \
-run-scotty-ex
+run-scotty-ex \
+module-exports

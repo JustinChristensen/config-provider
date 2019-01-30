@@ -1,18 +1,14 @@
 module System.Environment.Config.Default (
-      FlatConfigMap(..)
-    , Value(..)
-    , EnvReader
+      module System.Environment.Config
+    , module System.Environment.Config.Types
     , HasEnv
-    , ToJSON
-    , FromJSON
     , getConfig
     , getEnvName
     , appFileReader
     , defaultReader
-    , get
-    , getE
 ) where
 
+import System.Environment.Config.Types
 import Control.Monad.State (liftIO, gets)
 import System.Environment.Config hiding (getConfig)
 import Control.Applicative ((<|>))
@@ -55,11 +51,11 @@ appFileReader = let
         fEnv <- gets getEnv
         maybe (return ()) readEnvFile $ mEnv <|> fEnv
 
-defaultReader :: (HasEnv a, FromJSON a, Semigroup a, Show a) => EnvReader a
+defaultReader :: (HasEnv a, FromJSON a, Semigroup a) => EnvReader a
 defaultReader = do
     appFileReader
     envReader envPrefixFilter
     argsReader
 
-getConfig :: (HasEnv a, FromJSON a, Monoid a, Show a) => IO a
+getConfig :: (HasEnv a, FromJSON a, Monoid a) => IO a
 getConfig = C.getConfig defaultReader
