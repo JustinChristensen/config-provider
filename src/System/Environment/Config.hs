@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -155,7 +154,7 @@ nodeArray (Node node) = let contents = A.toJSON <$> (Content <$> skipWhitespace 
                         in toArr $ contents ++ [attrs]
     where toArr = Array . V.fromList
           toAttrPair (k, v) = (decodeUtf8 k, toVal $ Right v)
-          skipWhitespace = filter (\case
+          skipWhitespace = filter (\content -> case content of
               X.Text text -> B.all (not . isSpace) text
               _ -> True)
 
