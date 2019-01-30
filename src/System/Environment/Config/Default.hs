@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 module System.Environment.Config.Default (
       FlatConfigMap(..)
     , Value(..)
@@ -17,15 +16,14 @@ module System.Environment.Config.Default (
 import Control.Monad.State (liftIO, gets)
 import System.Environment.Config hiding (getConfig)
 import Control.Applicative ((<|>))
-import qualified Control.Monad.State as S (get)
 import qualified System.Environment.Config as C (getConfig)
 import qualified Data.Text as T
 
 class HasEnv a where
-    env :: a -> Maybe String
+    getEnv :: a -> Maybe String
 
 instance HasEnv FlatConfigMap where
-    env = get envNameVar
+    getEnv = get envNameVar
 
 envNameVar :: String
 envNameVar = "env"
@@ -44,22 +42,22 @@ getEnvName = let
     in do
         am <- getArgPairs >>= return . unEnvPairs
         em <- getEnvPairs envPrefixFilter >>= return . unEnvPairs
-        return $ lookup e am <|> lookup e em >>= \case
+        return $ lookup e am <|> lookup e em >>= \v -> case v of
             String s -> Just $ T.unpack s
             _ -> Nothing
 
 appFileReader :: (HasEnv a, FromJSON a, Semigroup a) => EnvReader a
 appFileReader = let 
-        readEnvFile e = jsonFileReader $ "app." ++ e ++ ".json"
+        readEnvFile e = optionalJsonFileReader $ "app." ++ e ++ ".json"
     in do
-        jsonFileReader "app.json"
+        optionalJsonFileReader "app.json"
         mEnv <- liftIO getEnvName
-        fEnv <- gets env
-        maybe S.get readEnvFile $ mEnv <|> fEnv
+        fEnv <- gets getEnv
+        maybe (return ()) readEnvFile $ mEnv <|> fEnv
 
 defaultReader :: (HasEnv a, FromJSON a, Semigroup a, Show a) => EnvReader a
 defaultReader = do
-    appFileReader 
+    appFileReader
     envReader envPrefixFilter
     argsReader
 
