@@ -55,6 +55,8 @@ test-suite config-provider-test
         Fixtures.EnvData
         System.Environment.ConfigSpec
         System.Environment.Config.DefaultSpec
+        System.Environment.Config.HelpersSpec
+        System.Environment.Config.TypesSpec
     default-language: Haskell2010
     ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
     build-depends:
