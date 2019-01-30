@@ -166,7 +166,7 @@ optionalYamlFileReader path = makeEnvReader $ \c -> optionalYamlFile c path
 
 xmlFileE :: (MonadIO m, FromJSON a) => FilePath -> m (Either ConfigSourceException a)
 xmlFileE path = liftIO $ B.readFile path >>= return . X.parse >>= 
-    return . either (Left . XenoError) (fromSource . Node)
+    return . either (Left . XenoError) (fromSource . nodeArray . Node)
 
 xmlFile :: (MonadThrow m, MonadIO m, FromJSON a) => FilePath -> m a
 xmlFile = makeThrow xmlFileE

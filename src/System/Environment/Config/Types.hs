@@ -12,6 +12,7 @@ module System.Environment.Config.Types (
     , Value(..)
     , FromJSON
     , ToJSON
+    , nodeArray
 ) where
 
 import System.Environment.Config.Helpers
