@@ -10,8 +10,9 @@ module System.Environment.Config.Default (
 ) where
 
 import System.Environment.Config.Types
-import Control.Monad.State (liftIO, gets)
 import System.Environment.Config hiding (getConfig)
+import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.State (liftIO, gets)
 import Control.Applicative ((<|>))
 import qualified System.Environment.Config as C (getConfig)
 import qualified Data.Text as T
@@ -58,5 +59,5 @@ defaultReader = do
     envReader envPrefixFilter
     argsReader
 
-getConfig :: (HasEnv a, FromJSON a, Monoid a) => IO a
+getConfig :: (MonadIO m, HasEnv a, FromJSON a, Monoid a) => m a
 getConfig = C.getConfig defaultReader

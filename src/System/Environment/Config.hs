@@ -206,5 +206,5 @@ argsReader = makeEnvReader $ const $ do
     argPairs <- getArgPairs
     either (liftIO . throwIO) return $ fromSource argPairs
 
-getConfig :: (FromJSON a, Monoid a) => EnvReader a -> IO a
-getConfig reader = execStateT reader mempty
+getConfig :: (MonadIO m, FromJSON a, Monoid a) => EnvReader a -> m a
+getConfig reader = liftIO $ execStateT reader mempty
