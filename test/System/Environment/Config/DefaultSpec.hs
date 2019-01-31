@@ -5,7 +5,6 @@ import Test.Hspec
 
 spec :: Spec
 spec = do
-    describe "getEnvName" $ return ()
     describe "appFileReader" $ return ()
     describe "defaultReader" $ return ()
     describe "getConfig" $ return ()

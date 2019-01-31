@@ -5,9 +5,6 @@ import Test.Hspec
 
 spec :: Spec
 spec = do
-    describe "getE" $ return ()
-    describe "getM" $ return ()
-    describe "get" $ return ()
     describe "getEnvPairs" $ return ()
     describe "getArgPairs" $ return ()
     describe "remoteReader" $ return ()

@@ -5,7 +5,6 @@ import Test.Hspec
 
 spec :: Spec
 spec = do
-    describe "flatConfigMap" $ return ()
-    describe "dot" $ return ()
-    describe "flatten" $ return ()
-    describe "flattenArray" $ return ()
+    describe "getE" $ return ()
+    describe "getM" $ return ()
+    describe "get" $ return ()
