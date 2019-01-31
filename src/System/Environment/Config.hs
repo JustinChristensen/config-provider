@@ -47,6 +47,7 @@ import Data.Aeson (Value(..), FromJSON, ToJSON)
 import Data.Maybe (fromMaybe)
 import Data.Either (either)
 import qualified Data.ByteString.Char8 as B
+import qualified Data.Text as T
 import qualified Xeno.DOM as X
 import qualified Data.Aeson as A
 import qualified Data.Ini as I
@@ -54,17 +55,22 @@ import qualified Data.Yaml as YL
 import qualified Data.HashMap.Strict as H
 
 getE:: FromJSON a => String -> FlatConfigMap -> Either ConfigGetException a
-getE k m = case H.lookup k $ unFlatConfigMap m of
-    Just v -> case A.fromJSON v of
-        A.Success a -> Right a
-        A.Error e -> Left $ ParseValueError e
-    _ -> Left $ KeyNotFoundError k
+getE path fm = getE' path $ unFlatConfigMap fm
+    where 
+        getE' "" v = case A.fromJSON v of
+            A.Success a -> Right a
+            A.Error e -> Left $ ParseValueError e
+        getE' p (Object m) = let (k, rest) = splitAtEl '.' p
+                             in case H.lookup (T.pack k) m of
+                                Just v -> getE' rest v
+                                _ -> Left $ KeyNotFoundError path
+        getE' _ _ = Left $ KeyNotFoundError path
 
 getM :: FromJSON a => String -> FlatConfigMap -> Maybe a
 getM = get
 
 get :: forall a m. (MonadThrow m, FromJSON a) => String -> FlatConfigMap -> m a
-get k m = either throwM return $ getE k m
+get path fm = either throwM return $ getE path fm
 
 normalizeKey :: String -> String
 normalizeKey ('_':'_':cs) = '.' : normalizeKey (dropWhile (== '_') cs)
@@ -90,14 +96,8 @@ filterEnv prefixes envVars = map envPair $ filter keyMatchesPrefix envVars
 
 argToPair :: String -> (String, Value)
 argToPair ('-':'-':arg) = argToPair arg
-argToPair arg = splitAtChar '=' arg
-    where
-        splitAtChar c str = let
-                key = normalizeKey $ takeWhile (/= c) str
-                val = case dropWhile (/= c) str of
-                    "" -> toVal $ Left ""
-                    cs -> toVal $ Left $ tail cs
-            in (key, val)
+argToPair arg = let (k, v) = splitAtEl '=' arg 
+                in (normalizeKey k, toVal $ Left v)
 
 mapArgs :: [String] -> [(String, Value)]
 mapArgs (a1:a2:args') | wantsArg a1 && isArg a2 = argToPair (a1 ++ "=" ++ a2) : mapArgs args'

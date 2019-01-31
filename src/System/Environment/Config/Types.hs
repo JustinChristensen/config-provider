@@ -21,7 +21,6 @@ import Control.Monad.State (StateT(..))
 import Data.Aeson (Value(..), FromJSON, ToJSON)
 import Data.Aeson.Types (typeMismatch)
 import Xeno.Types (XenoException)
-import qualified Data.Vector as V
 import qualified Data.Text as T
 import qualified Data.Aeson as A
 import qualified Data.Ini as I
@@ -31,7 +30,7 @@ import qualified Data.HashMap.Strict as H
 newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, Value)] }
 newtype Ini = Ini I.Ini
 
-newtype FlatConfigMap = FlatConfigMap { unFlatConfigMap :: H.HashMap String Value }
+newtype FlatConfigMap = FlatConfigMap { unFlatConfigMap :: Value }
     deriving (Show, Eq, Generic)
 
 type EnvReader s = StateT s IO ()
@@ -61,19 +60,20 @@ instance Exception ConfigSourceException where
         IniError s -> s
 
 instance Semigroup FlatConfigMap where
-    (<>) (FlatConfigMap c2) (FlatConfigMap c1) = FlatConfigMap $ H.unionWith pickVal c2 c1
+    (<>) (FlatConfigMap c2) (FlatConfigMap c1) = FlatConfigMap $ mergeVal c2 c1
         where
-            pickVal Null v1 = v1
-            pickVal v2 _ = v2
+            mergeVal (Object o2) (Object o1) = Object $ H.unionWith mergeVal o2 o1
+            mergeVal Null v1 = v1
+            mergeVal v2 _ = v2
 
 instance Monoid FlatConfigMap where
-    mempty = FlatConfigMap H.empty
+    mempty = FlatConfigMap $ Object H.empty
     mappend = (<>)
 
 instance FromJSON FlatConfigMap where
-    parseJSON o@(Object _) = return $ flatConfigMap o
-    parseJSON a@(Array _) = return $ flatConfigMap a
-    parseJSON invalid = typeMismatch "FlatConfigMap" invalid
+    parseJSON v = case v of 
+        Object _ -> return $ FlatConfigMap v
+        _ -> typeMismatch "FlatConfigMap" v
 
 instance ToJSON EnvPairs where
     toJSON = A.object . map packKey . unEnvPairs
@@ -85,26 +85,3 @@ instance ToJSON Ini where
                        in A.object $ sections ++ globals
         where toPair (k, v) = (k, toVal $ Left $ T.unpack v)
               toObj section pairs acc = (section, A.object $ toPair <$> pairs) : acc
-
-flatConfigMap :: Value -> FlatConfigMap
-flatConfigMap v = FlatConfigMap $ H.fromList $ flatten "" (Right "") v []
-
-dot :: String -> Either Int T.Text -> String
-dot "" (Right k) = T.unpack k
-dot p (Left k) = p ++ '[' : show k ++ "]"
-dot p (Right k) = p ++ '.' : T.unpack k
-
-flatten :: String -> Either Int T.Text -> Value -> [(String, Value)] -> [(String, Value)]
-flatten path key val acc = case val of
-    Object o -> H.foldrWithKey (flatten (dot path key) . Right) acc o
-    Array a -> flattenArray path key a acc
-    v -> (lcase $ dot path key, v) : acc
-
-flattenArray :: String -> Either Int T.Text -> A.Array -> [(String, Value)] -> [(String, Value)]
-flattenArray path key arr acc = if hasObjects arr then
-            V.foldr (flatten path key) acc arr
-        else 
-            V.ifoldr (flatten (dot path key) . Left) acc arr
-    where hasObjects = V.any isObject
-          isObject (Object _) = True
-          isObject _ = False

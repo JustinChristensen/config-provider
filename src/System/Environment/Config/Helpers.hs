@@ -4,6 +4,7 @@ module System.Environment.Config.Helpers (
     , lcase
     , toVal
     , nodeArray
+    , splitAtEl
 ) where
 
 import Data.Char (toLower, isSpace)
@@ -25,6 +26,10 @@ instance ToJSON Content where
     toJSON (Content (X.Element node)) = A.toJSON (Node node)
     toJSON (Content (X.Text text)) = toVal $ Right text
     toJSON (Content (X.CData cdata)) = String $ decodeUtf8 cdata
+
+splitAtEl :: Eq a => a -> [a] -> ([a], [a])
+splitAtEl x xs = let (pre, rest) = span (/= x) xs
+                 in (pre, if null rest then rest else tail rest)
 
 toVal :: Either String B.ByteString -> Value
 toVal (Left v) = toVal $ Right $ B.pack v
