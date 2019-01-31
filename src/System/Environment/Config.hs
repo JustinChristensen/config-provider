@@ -100,10 +100,13 @@ argToPair arg = let (k, v) = splitAtEl '=' arg
                 in (normalizeKey k, toVal $ Left v)
 
 mapArgs :: [String] -> [(String, Value)]
-mapArgs (a1:a2:args') | wantsArg a1 && isArg a2 = argToPair (a1 ++ "=" ++ a2) : mapArgs args'
-                     | otherwise = argToPair a1 : mapArgs (a2:args')
-    where wantsArg a = "--" `isPrefixOf` a && '=' `notElem` a
-          isArg a = not ("--" `isPrefixOf` a) && '=' `notElem` a
+mapArgs (a1:a2:args') | a1 == "--" = mapArgs (a2:args')
+                      | wantsArg a1 && isArg a2 = argToPair (a1 ++ "=" ++ a2) : mapArgs args'
+                      | otherwise = argToPair a1 : mapArgs (a2:args')
+    where wantsArg ('-':'-':a) = '=' `notElem` a
+          wantsArg _ = False
+          isArg ('-':'-':_) = False 
+          isArg a = '=' `notElem` a
 mapArgs (arg:args') = argToPair arg : mapArgs args'
 mapArgs [] = []
 
