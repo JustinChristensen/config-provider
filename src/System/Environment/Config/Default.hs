@@ -2,6 +2,7 @@ module System.Environment.Config.Default (
       module System.Environment.Config
     , module System.Environment.Config.Types
     , HasEnv
+    , getEnv
     , getConfig
     , getEnvName
     , appFileReader
