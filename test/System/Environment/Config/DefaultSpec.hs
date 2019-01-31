@@ -1,8 +1,11 @@
 module System.Environment.Config.DefaultSpec (spec) where
 
-import SpecHelper
 import Test.Hspec
-import System.Environment.Config.Default
+-- import System.Environment.Config.Default
 
 spec :: Spec
-spec = return ()
+spec = do
+    describe "getEnvName" $ return ()
+    describe "appFileReader" $ return ()
+    describe "defaultReader" $ return ()
+    describe "getConfig" $ return ()

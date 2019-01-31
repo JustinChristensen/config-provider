@@ -12,20 +12,15 @@ module System.Environment.Config.Types (
     , Value(..)
     , FromJSON
     , ToJSON
-    , nodeArray
 ) where
 
 import System.Environment.Config.Helpers
 import GHC.Generics
 import Control.Monad.Catch
 import Control.Monad.State (StateT(..))
-import Data.Char (isSpace)
 import Data.Aeson (Value(..), FromJSON, ToJSON)
 import Data.Aeson.Types (typeMismatch)
-import Data.Text.Encoding (decodeUtf8)
 import Xeno.Types (XenoException)
-import qualified Data.ByteString.Char8 as B
-import qualified Xeno.DOM as X
 import qualified Data.Vector as V
 import qualified Data.Text as T
 import qualified Data.Aeson as A
@@ -34,8 +29,6 @@ import qualified Data.Yaml as YL
 import qualified Data.HashMap.Strict as H
 
 newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, Value)] }
-newtype Node = Node X.Node
-newtype Content = Content X.Content
 newtype Ini = Ini I.Ini
 
 newtype FlatConfigMap = FlatConfigMap { unFlatConfigMap :: H.HashMap String Value }
@@ -82,14 +75,6 @@ instance FromJSON FlatConfigMap where
     parseJSON a@(Array _) = return $ flatConfigMap a
     parseJSON invalid = typeMismatch "FlatConfigMap" invalid
 
-instance ToJSON Node where
-    toJSON n@(Node node) = A.object [(decodeUtf8 $ X.name node, nodeArray n)]
-
-instance ToJSON Content where
-    toJSON (Content (X.Element node)) = A.toJSON (Node node)
-    toJSON (Content (X.Text text)) = toVal $ Right text
-    toJSON (Content (X.CData cdata)) = String $ decodeUtf8 cdata
-
 instance ToJSON EnvPairs where
     toJSON = A.object . map packKey . unEnvPairs
         where packKey (k, v) = (T.pack k, v)
@@ -103,16 +88,6 @@ instance ToJSON Ini where
 
 flatConfigMap :: Value -> FlatConfigMap
 flatConfigMap v = FlatConfigMap $ H.fromList $ flatten "" (Right "") v []
-
-nodeArray :: Node -> Value
-nodeArray (Node node) = let contents = A.toJSON <$> (Content <$> skipWhitespace (X.contents node))
-                            attrs = A.object $ toAttrPair <$> X.attributes node
-                        in toArr $ contents ++ [attrs]
-    where toArr = Array . V.fromList
-          toAttrPair (k, v) = (decodeUtf8 k, toVal $ Right v)
-          skipWhitespace = filter (\c -> case c of
-              X.Text text -> B.all (not . isSpace) text
-              _ -> True)
 
 dot :: String -> Either Int T.Text -> String
 dot "" (Right k) = T.unpack k

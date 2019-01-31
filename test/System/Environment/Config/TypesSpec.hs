@@ -1,8 +1,11 @@
 module System.Environment.Config.TypesSpec (spec) where
 
-import SpecHelper
 import Test.Hspec
-import System.Environment.Config.Types
+-- import System.Environment.Config.Types
 
 spec :: Spec
-spec = return ()
+spec = do
+    describe "flatConfigMap" $ return ()
+    describe "dot" $ return ()
+    describe "flatten" $ return ()
+    describe "flattenArray" $ return ()
