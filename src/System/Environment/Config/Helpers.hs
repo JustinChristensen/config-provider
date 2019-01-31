@@ -1,6 +1,7 @@
 module System.Environment.Config.Helpers (
       Node(..)
     , Content(..)
+    , envNameVar
     , lcase
     , toVal
     , nodeArray
@@ -26,6 +27,9 @@ instance ToJSON Content where
     toJSON (Content (X.Element node)) = A.toJSON (Node node)
     toJSON (Content (X.Text text)) = toVal $ Right text
     toJSON (Content (X.CData cdata)) = String $ decodeUtf8 cdata
+
+envNameVar :: String
+envNameVar = "env"
 
 splitAtEl :: Eq a => a -> [a] -> ([a], [a])
 splitAtEl x xs = let (pre, rest) = span (/= x) xs

@@ -1,30 +1,17 @@
 module System.Environment.Config.Default (
       module System.Environment.Config
     , module System.Environment.Config.Types
-    , HasEnv
-    , getEnv
     , getConfig
-    , getEnvName
     , appFileReader
     , defaultReader
 ) where
 
 import System.Environment.Config.Types
 import System.Environment.Config hiding (getConfig)
+import System.Environment.Config.Helpers (envNameVar)
 import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.State (liftIO, gets)
-import Control.Applicative ((<|>))
+import qualified Control.Monad.State as S (get, gets, put)
 import qualified System.Environment.Config as C (getConfig)
-import qualified Data.Text as T
-
-class HasEnv a where
-    getEnv :: a -> Maybe String
-
-instance HasEnv FlatConfigMap where
-    getEnv = get envNameVar
-
-envNameVar :: String
-envNameVar = "env"
 
 envPrefixFilter :: [String]
 envPrefixFilter = [
@@ -34,30 +21,22 @@ envPrefixFilter = [
     , "port"
     ]
 
-getEnvName :: IO (Maybe String)
-getEnvName = let
-        e = envNameVar
-    in do
-        am <- getArgPairs >>= return . unEnvPairs
-        em <- getEnvPairs envPrefixFilter >>= return . unEnvPairs
-        return $ lookup e am <|> lookup e em >>= \v -> case v of
-            String s -> Just $ T.unpack s
-            _ -> Nothing
-
-appFileReader :: (HasEnv a, FromJSON a, Semigroup a) => EnvReader a
-appFileReader = let 
-        readEnvFile e = optionalJsonFileReader $ "app." ++ e ++ ".json"
-    in do
+appFileReader :: (FromJSON a, Mergeable a) => EnvReader a
+appFileReader = do
         optionalJsonFileReader "app.json"
-        mEnv <- liftIO getEnvName
-        fEnv <- gets getEnv
-        maybe (return ()) readEnvFile $ mEnv <|> fEnv
+        mEnv <- S.gets getEnv
+        maybe (return ()) readEnvFile mEnv
+    where 
+        readEnvFile e = optionalJsonFileReader $ "app." ++ e ++ ".json"
 
-defaultReader :: (HasEnv a, FromJSON a, Semigroup a) => EnvReader a
+defaultReader :: (FromJSON a, Mergeable a) => EnvReader a
 defaultReader = do
-    appFileReader
     envReader envPrefixFilter
-    argsReader
+    argsReader 
+    prev <- S.get
+    appFileReader
+    curr <- S.get
+    S.put (prev `merge` curr)
 
-getConfig :: (MonadIO m, HasEnv a, FromJSON a, Monoid a) => m a
+getConfig :: (MonadIO m, FromJSON a, Mergeable a) => m a
 getConfig = C.getConfig defaultReader

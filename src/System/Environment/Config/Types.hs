@@ -1,7 +1,9 @@
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 module System.Environment.Config.Types (
-      FlatConfigMap(..)
+      Mergeable
+    , FlatConfigMap(..)
     , ConfigSourceException(..)
     , ConfigGetException(..)
     , EnvPairs(..)
@@ -12,6 +14,12 @@ module System.Environment.Config.Types (
     , Value(..)
     , FromJSON
     , ToJSON
+    , empty      
+    , merge
+    , getEnv
+    , get
+    , getM
+    , getE
 ) where
 
 import System.Environment.Config.Helpers
@@ -47,6 +55,13 @@ data ConfigGetException =
     | ParseValueError String 
     deriving (Show)
 
+class Mergeable a where
+    empty :: a
+    merge :: a -> a -> a
+    getEnv :: a -> Maybe String
+    getEnv _ = Nothing
+    {-# MINIMAL empty, merge #-}
+
 instance Exception ConfigGetException where
     displayException e = case e of
         KeyNotFoundError k -> "key " ++ k ++ " not found in configuration"
@@ -70,6 +85,11 @@ instance Monoid FlatConfigMap where
     mempty = FlatConfigMap $ Object H.empty
     mappend = (<>)
 
+instance Mergeable FlatConfigMap where
+    empty = mempty
+    merge = (<>)
+    getEnv = get envNameVar
+
 instance FromJSON FlatConfigMap where
     parseJSON v = case v of 
         Object _ -> return $ FlatConfigMap v
@@ -85,3 +105,21 @@ instance ToJSON Ini where
                        in A.object $ sections ++ globals
         where toPair (k, v) = (k, toVal $ Left $ T.unpack v)
               toObj section pairs acc = (section, A.object $ toPair <$> pairs) : acc
+
+getE:: FromJSON a => String -> FlatConfigMap -> Either ConfigGetException a
+getE path fm = getE' path $ unFlatConfigMap fm
+    where 
+        getE' "" v = case A.fromJSON v of
+            A.Success a -> Right a
+            A.Error e -> Left $ ParseValueError e
+        getE' p (Object m) = let (k, rest) = splitAtEl '.' p
+                             in case H.lookup (T.pack k) m of
+                                Just v -> getE' rest v
+                                _ -> Left $ KeyNotFoundError path
+        getE' _ _ = Left $ KeyNotFoundError path
+
+getM :: FromJSON a => String -> FlatConfigMap -> Maybe a
+getM = get
+
+get :: forall a m. (MonadThrow m, FromJSON a) => String -> FlatConfigMap -> m a
+get path fm = either throwM return $ getE path fm

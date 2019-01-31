@@ -1,4 +1,3 @@
-{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 module System.Environment.Config (
       module System.Environment.Config.Types
@@ -28,9 +27,6 @@ module System.Environment.Config (
     , getArgPairs
     , getEnvPairs
     , getConfig
-    , get
-    , getM
-    , getE
 ) where
 
 import System.Environment.Config.Types
@@ -47,30 +43,10 @@ import Data.Aeson (Value(..), FromJSON, ToJSON)
 import Data.Maybe (fromMaybe)
 import Data.Either (either)
 import qualified Data.ByteString.Char8 as B
-import qualified Data.Text as T
 import qualified Xeno.DOM as X
 import qualified Data.Aeson as A
 import qualified Data.Ini as I
 import qualified Data.Yaml as YL
-import qualified Data.HashMap.Strict as H
-
-getE:: FromJSON a => String -> FlatConfigMap -> Either ConfigGetException a
-getE path fm = getE' path $ unFlatConfigMap fm
-    where 
-        getE' "" v = case A.fromJSON v of
-            A.Success a -> Right a
-            A.Error e -> Left $ ParseValueError e
-        getE' p (Object m) = let (k, rest) = splitAtEl '.' p
-                             in case H.lookup (T.pack k) m of
-                                Just v -> getE' rest v
-                                _ -> Left $ KeyNotFoundError path
-        getE' _ _ = Left $ KeyNotFoundError path
-
-getM :: FromJSON a => String -> FlatConfigMap -> Maybe a
-getM = get
-
-get :: forall a m. (MonadThrow m, FromJSON a) => String -> FlatConfigMap -> m a
-get path fm = either throwM return $ getE path fm
 
 normalizeKey :: String -> String
 normalizeKey ('_':'_':cs) = '.' : normalizeKey (dropWhile (== '_') cs)
@@ -127,12 +103,12 @@ makeThrow source path = source path >>= either throwM return
 makeOptional :: (MonadCatch m, MonadIO m, FromJSON a) => (FilePath -> m a) -> a -> FilePath -> m a
 makeOptional source c1 path = catchIf isDoesNotExistError (source path) (const $ return c1)
 
-makeEnvReader :: (FromJSON a, Semigroup a) => (a -> IO a) -> EnvReader a
+makeEnvReader :: (FromJSON a, Mergeable a) => (a -> IO a) -> EnvReader a
 makeEnvReader source = StateT $ \c1 -> do
     c2 <- source c1 
-    return ((), c2 <> c1)
+    return ((), c2 `merge` c1)
 
-remoteReader :: (FromJSON a, Semigroup a) => (a -> IO a) -> EnvReader a
+remoteReader :: (FromJSON a, Mergeable a) => (a -> IO a) -> EnvReader a
 remoteReader = makeEnvReader
 
 jsonFileE :: (MonadIO m, FromJSON a) => FilePath -> m (Either ConfigSourceException a)
@@ -145,10 +121,10 @@ jsonFile = makeThrow jsonFileE
 optionalJsonFile :: (MonadCatch m, MonadIO m, FromJSON a) => a -> FilePath -> m a
 optionalJsonFile = makeOptional jsonFile
 
-jsonFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
+jsonFileReader :: (FromJSON a, Mergeable a) => FilePath -> EnvReader a
 jsonFileReader path = makeEnvReader $ const $ jsonFile path
 
-optionalJsonFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
+optionalJsonFileReader :: (FromJSON a, Mergeable a) => FilePath -> EnvReader a
 optionalJsonFileReader path = makeEnvReader $ \c -> optionalJsonFile c path
 
 yamlFileE :: (MonadIO m, FromJSON a) => FilePath -> m (Either ConfigSourceException a)
@@ -161,10 +137,10 @@ yamlFile = makeThrow yamlFileE
 optionalYamlFile :: (MonadCatch m, MonadIO m, FromJSON a) => a -> FilePath -> m a
 optionalYamlFile = makeOptional yamlFile
 
-yamlFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
+yamlFileReader :: (FromJSON a, Mergeable a) => FilePath -> EnvReader a
 yamlFileReader path = makeEnvReader $ const $ jsonFile path
 
-optionalYamlFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
+optionalYamlFileReader :: (FromJSON a, Mergeable a) => FilePath -> EnvReader a
 optionalYamlFileReader path = makeEnvReader $ \c -> optionalYamlFile c path
 
 xmlFileE :: (MonadIO m, FromJSON a) => FilePath -> m (Either ConfigSourceException a)
@@ -177,10 +153,10 @@ xmlFile = makeThrow xmlFileE
 optionalXmlFile :: (MonadCatch m, MonadIO m, FromJSON a) => a -> FilePath -> m a
 optionalXmlFile = makeOptional xmlFile
 
-xmlFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
+xmlFileReader :: (FromJSON a, Mergeable a) => FilePath -> EnvReader a
 xmlFileReader path = makeEnvReader $ const $ xmlFile path
 
-optionalXmlFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
+optionalXmlFileReader :: (FromJSON a, Mergeable a) => FilePath -> EnvReader a
 optionalXmlFileReader path = makeEnvReader $ \c -> optionalXmlFile c path
 
 iniFileE :: (MonadIO m, FromJSON a) => FilePath -> m (Either ConfigSourceException a)
@@ -193,21 +169,21 @@ iniFile = makeThrow iniFileE
 optionalIniFile :: (MonadCatch m, MonadIO m, FromJSON a) => a -> FilePath -> m a
 optionalIniFile = makeOptional iniFile
 
-iniFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
+iniFileReader :: (FromJSON a, Mergeable a) => FilePath -> EnvReader a
 iniFileReader path = makeEnvReader $ const $ iniFile path
 
-optionalIniFileReader :: (FromJSON a, Semigroup a) => FilePath -> EnvReader a
+optionalIniFileReader :: (FromJSON a, Mergeable a) => FilePath -> EnvReader a
 optionalIniFileReader path = makeEnvReader $ \c -> optionalIniFile c path
 
-envReader :: (FromJSON a, Semigroup a) => [String] -> EnvReader a
+envReader :: (FromJSON a, Mergeable a) => [String] -> EnvReader a
 envReader prefixes = makeEnvReader $ const $ do
     envPairs <- getEnvPairs prefixes
     either (liftIO . throwIO) return $ fromSource envPairs
 
-argsReader :: (FromJSON a, Semigroup a) => EnvReader a
+argsReader :: (FromJSON a, Mergeable a) => EnvReader a
 argsReader = makeEnvReader $ const $ do
     argPairs <- getArgPairs
     either (liftIO . throwIO) return $ fromSource argPairs
 
-getConfig :: (MonadIO m, FromJSON a, Monoid a) => EnvReader a -> m a
-getConfig reader = liftIO $ execStateT reader mempty
+getConfig :: (MonadIO m, FromJSON a, Mergeable a) => EnvReader a -> m a
+getConfig reader = liftIO $ execStateT reader empty
