@@ -133,5 +133,5 @@ debugConfig = putStrLn . debugConfig' 0 . unConfig
         toKey depth key = "\n" ++ concat (replicate depth "  ") ++ T.unpack key ++ ": "
         toString depth key val acc = case val of 
             Object _ -> acc ++ toKey depth key ++ debugConfig' (succ depth) val
-            Array _ -> acc
+            Array v -> acc ++ toKey depth key ++ show v
             _ -> acc ++ toKey depth key ++ show val
