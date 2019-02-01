@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 module System.Environment.Config.Types (
       Mergeable
-    , ConfigMap(..)
+    , Config(..)
     , ConfigSourceException(..)
     , ConfigGetException(..)
     , EnvPairs(..)
@@ -20,6 +20,7 @@ module System.Environment.Config.Types (
     , get
     , getM
     , getE
+    , debugConfig
 ) where
 
 import System.Environment.Config.Helpers
@@ -38,7 +39,7 @@ import qualified Data.HashMap.Strict as H
 newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, Value)] }
 newtype Ini = Ini I.Ini
 
-newtype ConfigMap = ConfigMap { unConfigMap :: Value }
+newtype Config = Config { unConfig :: Value }
     deriving (Show, Eq, Generic)
 
 type EnvReader s = StateT s IO ()
@@ -74,26 +75,26 @@ instance Exception ConfigSourceException where
         XenoError e' -> displayException e'
         IniError s -> s
 
-instance Semigroup ConfigMap where
-    (<>) (ConfigMap c2) (ConfigMap c1) = ConfigMap $ mergeVal c2 c1
+instance Semigroup Config where
+    (<>) (Config c2) (Config c1) = Config $ mergeVal c2 c1
         where
             mergeVal (Object o2) (Object o1) = Object $ H.unionWith mergeVal o2 o1
             mergeVal Null v1 = v1
             mergeVal v2 _ = v2
 
-instance Monoid ConfigMap where
-    mempty = ConfigMap $ Object H.empty
+instance Monoid Config where
+    mempty = Config $ Object H.empty
     mappend = (<>)
 
-instance Mergeable ConfigMap where
+instance Mergeable Config where
     empty = mempty
     merge = (<>)
     getEnv = get envNameVar
 
-instance FromJSON ConfigMap where
+instance FromJSON Config where
     parseJSON v = case v of 
-        Object _ -> return $ ConfigMap v
-        _ -> typeMismatch "ConfigMap" v
+        Object _ -> return $ Config v
+        _ -> typeMismatch "Config" v
 
 instance ToJSON EnvPairs where
     toJSON = A.object . map packKey . unEnvPairs
@@ -106,8 +107,8 @@ instance ToJSON Ini where
         where toPair (k, v) = (k, toVal $ Left $ T.unpack v)
               toObj section pairs acc = (section, A.object $ toPair <$> pairs) : acc
 
-getE:: FromJSON a => String -> ConfigMap -> Either ConfigGetException a
-getE path fm = getE' path $ unConfigMap fm
+getE:: FromJSON a => String -> Config -> Either ConfigGetException a
+getE path fm = getE' path $ unConfig fm
     where 
         getE' "" v = case A.fromJSON v of
             A.Success a -> Right a
@@ -118,8 +119,11 @@ getE path fm = getE' path $ unConfigMap fm
                                 _ -> Left $ KeyNotFoundError path
         getE' _ _ = Left $ KeyNotFoundError path
 
-getM :: FromJSON a => String -> ConfigMap -> Maybe a
+getM :: FromJSON a => String -> Config -> Maybe a
 getM = get
 
-get :: forall a m. (MonadThrow m, FromJSON a) => String -> ConfigMap -> m a
+get :: forall a m. (MonadThrow m, FromJSON a) => String -> Config -> m a
 get path fm = either throwM return $ getE path fm
+
+debugConfig :: Config -> IO ()
+debugConfig = print

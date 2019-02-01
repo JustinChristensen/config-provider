@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 module System.Environment.Config (
       module System.Environment.Config.Types
     , jsonFileE

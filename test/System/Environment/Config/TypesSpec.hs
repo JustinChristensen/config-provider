@@ -3,6 +3,11 @@ module System.Environment.Config.TypesSpec (spec) where
 import Test.Hspec
 -- import System.Environment.Config.Types
 
+-- TODO: define whether or not the lowercasing of keys should happen during the conversion TO an
+-- Aeson value or FROM the conversion
+-- Note that this impacts how conflicting keys are handled, i.e. should "ENV" or "env" win? Does insertion order matter? 
+-- Should we lowercase? How does this work with ADTs with named fields? logLevel
+
 spec :: Spec
 spec = do
     describe "getE" $ do
@@ -20,7 +25,7 @@ spec = do
         it "throws a KeyNotFoundError if there are still more path segments left after finding a non-object value" pending
         it "throws a KeyNotFoundError if lookup fails and there are no path segments remaining" pending
         it "throws a ParseValueError if the type conversion fails" pending
-    describe "ConfigMap" $ do
+    describe "Config" $ do
         describe "fromJSON" $ do
             it "wraps an object" pending
             it "throws if the value is not an object" pending
