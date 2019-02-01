@@ -6,7 +6,6 @@ import System.Environment.Config.Helpers
 import System.Environment (getArgs, getEnvironment)
 import Control.Monad.Catch
 import Control.Monad.IO.Class (MonadIO)
-import Control.Exception (throwIO)
 import System.IO.Error (isDoesNotExistError)
 import Control.Monad.State (StateT(..), execStateT, liftIO)
 import Data.Char (toLower)
@@ -69,8 +68,11 @@ fromSource a = case A.fromJSON $ A.toJSON a of
     A.Success b -> Right b
     A.Error s -> Left $ AesonError s
 
-makeThrow :: (MonadThrow m, FromJSON a) => (FilePath -> m (Either ConfigSourceException a)) -> FilePath -> m a
-makeThrow source path = source path >>= either throwM return
+makeThrow :: (MonadThrow m, FromJSON a) => m (Either ConfigSourceException a) -> m a
+makeThrow source = source >>= either throwM return
+
+makeThrowF :: (MonadThrow m, FromJSON a) => (FilePath -> m (Either ConfigSourceException a)) -> FilePath -> m a
+makeThrowF source path = makeThrow $ source path
 
 makeOptional :: (MonadCatch m, MonadIO m, FromJSON a) => (FilePath -> m a) -> a -> FilePath -> m a
 makeOptional source c1 path = catchIf isDoesNotExistError (source path) (const $ return c1)
@@ -88,7 +90,7 @@ jsonFileE path = liftIO $ A.eitherDecodeFileStrict' path >>=
     return . either (Left . AesonError) return
 
 jsonFile :: (MonadThrow m, MonadIO m, FromJSON a) => FilePath -> m a
-jsonFile = makeThrow jsonFileE
+jsonFile = makeThrowF jsonFileE
 
 optionalJsonFile :: (MonadCatch m, MonadIO m, FromJSON a) => a -> FilePath -> m a
 optionalJsonFile = makeOptional jsonFile
@@ -104,7 +106,7 @@ yamlFileE path = liftIO $ YL.decodeFileEither path >>=
     return . either (Left . YamlError) return
 
 yamlFile :: (MonadThrow m, MonadIO m, FromJSON a) => FilePath -> m a
-yamlFile = makeThrow yamlFileE
+yamlFile = makeThrowF yamlFileE
 
 optionalYamlFile :: (MonadCatch m, MonadIO m, FromJSON a) => a -> FilePath -> m a
 optionalYamlFile = makeOptional yamlFile
@@ -120,7 +122,7 @@ xmlFileE path = liftIO $ B.readFile path >>= return . X.parse >>=
     return . either (Left . XenoError) (fromSource . nodeList . Node)
 
 xmlFile :: (MonadThrow m, MonadIO m, FromJSON a) => FilePath -> m a
-xmlFile = makeThrow xmlFileE
+xmlFile = makeThrowF xmlFileE
 
 optionalXmlFile :: (MonadCatch m, MonadIO m, FromJSON a) => a -> FilePath -> m a
 optionalXmlFile = makeOptional xmlFile
@@ -136,7 +138,7 @@ iniFileE path = liftIO $ I.readIniFile path >>=
     return . either (Left . IniError) (fromSource . Ini)
 
 iniFile :: (MonadThrow m, MonadIO m, FromJSON a) => FilePath -> m a
-iniFile = makeThrow iniFileE
+iniFile = makeThrowF iniFileE
 
 optionalIniFile :: (MonadCatch m, MonadIO m, FromJSON a) => a -> FilePath -> m a
 optionalIniFile = makeOptional iniFile
@@ -147,15 +149,27 @@ iniFileReader path = makeEnvReader $ const $ iniFile path
 optionalIniFileReader :: (FromJSON a, Mergeable a) => FilePath -> EnvReader a
 optionalIniFileReader path = makeEnvReader $ \c -> optionalIniFile c path
 
+envSourceE :: (MonadIO m, FromJSON a) => [String] -> m (Either ConfigSourceException a)
+envSourceE prefixes = do
+    envPairs <- liftIO $ getEnvPairs prefixes
+    return $ fromSource envPairs
+
+envSource :: (MonadThrow m, MonadIO m, FromJSON a) => [String] -> m a
+envSource prefixes = makeThrow $ envSourceE prefixes
+
 envReader :: (FromJSON a, Mergeable a) => [String] -> EnvReader a
-envReader prefixes = makeEnvReader $ const $ do
-    envPairs <- getEnvPairs prefixes
-    either (liftIO . throwIO) return $ fromSource envPairs
+envReader prefixes = makeEnvReader $ const $ envSource prefixes
+
+argsSourceE :: (MonadIO m, FromJSON a) => m (Either ConfigSourceException a)
+argsSourceE = do
+    argPairs <- liftIO $ getArgPairs 
+    return $ fromSource argPairs
+
+argsSource :: (MonadThrow m, MonadIO m, FromJSON a) => m a
+argsSource = makeThrow argsSourceE
 
 argsReader :: (FromJSON a, Mergeable a) => EnvReader a
-argsReader = makeEnvReader $ const $ do
-    argPairs <- getArgPairs
-    either (liftIO . throwIO) return $ fromSource argPairs
+argsReader = makeEnvReader $ const $ argsSource
 
 getConfig :: (MonadIO m, FromJSON a, Mergeable a) => EnvReader a -> m a
 getConfig reader = liftIO $ execStateT reader empty

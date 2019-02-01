@@ -20,7 +20,11 @@ module System.Environment.Config (
     , optionalIniFile
     , iniFileReader
     , optionalIniFileReader
+    , envSourceE
+    , envSource
     , envReader
+    , argsSourceE
+    , argsSource
     , argsReader
     , remoteReader
     , getConfig

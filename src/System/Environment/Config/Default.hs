@@ -11,7 +11,7 @@ import System.Environment.Config hiding (getConfig)
 import System.Environment.Config.Helpers (envNameVar)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Applicative ((<|>))
-import qualified Control.Monad.State as S (get, gets, put)
+import qualified Control.Monad.State as S (gets, modify)
 import qualified System.Environment.Config as C (getConfig)
 
 envPrefixFilter :: [String]
@@ -32,13 +32,11 @@ appFileReader env = do
 
 defaultReader :: (FromJSON a, Mergeable a) => EnvReader a
 defaultReader = do
-    envReader envPrefixFilter
-    argsReader 
-    prev <- S.get
-    env <- S.gets getEnv
-    appFileReader env
-    curr <- S.get
-    S.put (prev `merge` curr)
+    env <- envSource envPrefixFilter
+    args <- argsSource 
+    let prev = args `merge` env
+    appFileReader $ getEnv prev
+    S.modify (merge prev)
 
 getConfig :: (MonadIO m, FromJSON a, Mergeable a) => m a
 getConfig = C.getConfig defaultReader
