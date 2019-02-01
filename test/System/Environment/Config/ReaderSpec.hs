@@ -1,17 +1,59 @@
+{-# LANGUAGE OverloadedStrings #-}
 module System.Environment.Config.ReaderSpec (spec) where
 
+import Data.Scientific (scientific)
+import Data.Aeson (Value(..))
 import Test.Hspec
--- import System.Environment.Config.Reader
+import System.Environment.Config.Reader
+import Fixtures.EnvData
 
 spec :: Spec
 spec = do
     describe "normalizeKey" $ do
-        it "replaces two or more underscores with a period" pending
-        it "lowercases the key" pending
+        it "replaces two or more underscores with a period" $ do
+            normalizeKey "foo__bar" `shouldBe` "foo.bar"
+            normalizeKey "foo_bar" `shouldBe` "foo_bar"
+            normalizeKey "foo_____bar" `shouldBe` "foo.bar"
+        it "lowercases the key" $
+            normalizeKey "FOO__BAR" `shouldBe` "foo.bar"
     describe "filterEnv" $ do
-        it "matches and strips the longest tilde prefix from the key" pending
-        it "matches and preserves non-tilde prefixes in the key" pending
-        it "omits environment variables that do not match the prefixes" pending
+        it "matches and strips the longest tilde prefix from the key" $ do
+            let expected = [
+                    ("api_key", String "vault-api-key"),
+                    ("db.host", String "127.0.0.1"),
+                    ("db.port", Number $ scientific 3306 0)]
+            let prefixes = ["~hs__", "~hs__vault_"]
+            filterEnv prefixes stubEnv `shouldMatchList` expected
+            filterEnv (reverse prefixes) stubEnv `shouldMatchList` expected
+        it "matches and preserves non-tilde prefixes in the key" $ 
+            filterEnv ["foo", "port"] stubEnv `shouldMatchList` [
+                    ("foo", String "bar"),
+                    ("port", Number $ scientific 3000 0)]
+        it "omits environment variables that do not match the prefixes" $ do
+            let actual = filterEnv ["~hs__", "port"] stubEnv
+            actual `shouldNotContain` [("foo", String "bar")]
+            actual `shouldNotContain` [("baz", String "quux")]
+            actual `shouldMatchList` [
+                    ("vault_api_key", String "vault-api-key"), 
+                    ("db.host", String "127.0.0.1"), 
+                    ("db.port", Number $ scientific 3306 0),
+                    ("port", Number $ scientific 3000 0)
+                ]
+        it "should parse values" $ do
+            let env = [("string", "foo"),
+                       ("empty", ""),
+                       ("bool", "true"),
+                       ("integer", "3000"),
+                       ("float", "3.1459"),
+                       ("NULL", "null")]
+            filterEnv ["~"] env `shouldMatchList` [
+                    ("string", String "foo"),
+                    ("empty", String ""),
+                    ("bool", Bool True),
+                    ("integer", Number $ scientific 3000 0),
+                    ("float", Number $ scientific 31459 (-4)),
+                    ("null", Null)
+                ]
     describe "argToPair" $ do
         it "strips leading dashes from the key" pending
         it "splits the key and the value on '='" pending

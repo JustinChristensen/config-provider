@@ -64,8 +64,5 @@ test-suite config-provider-test
         base >=4.7 && <5,
         hspec ==2.6.*,
         aeson ==1.4.*,
-        text ==1.2.*,
-        containers ==0.6.*,
-        unordered-containers ==0.2.*,
-        mtl ==2.2.*,
+        scientific ==0.3.*,
         config-provider -any
