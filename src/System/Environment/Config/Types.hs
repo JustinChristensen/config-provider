@@ -126,4 +126,12 @@ get :: forall a m. (MonadThrow m, FromJSON a) => String -> Config -> m a
 get path fm = either throwM return $ getE path fm
 
 debugConfig :: Config -> IO ()
-debugConfig = print
+debugConfig = putStrLn . debugConfig' 0 . unConfig
+    where
+        debugConfig' depth (Object o) = H.foldrWithKey (toString depth) "" o
+        debugConfig' _ _ = ""
+        toKey depth key = "\n" ++ concat (replicate depth "  ") ++ T.unpack key ++ ": "
+        toString depth key val acc = case val of 
+            Object _ -> acc ++ toKey depth key ++ debugConfig' (succ depth) val
+            Array _ -> acc
+            _ -> acc ++ toKey depth key ++ show val
