@@ -10,6 +10,7 @@ import System.Environment.Config.Types
 import System.Environment.Config hiding (getConfig)
 import System.Environment.Config.Helpers (envNameVar)
 import Control.Monad.IO.Class (MonadIO)
+import Control.Applicative ((<|>))
 import qualified Control.Monad.State as S (get, gets, put)
 import qualified System.Environment.Config as C (getConfig)
 
@@ -21,11 +22,11 @@ envPrefixFilter = [
     , "port"
     ]
 
-appFileReader :: (FromJSON a, Mergeable a) => EnvReader a
-appFileReader = do
+appFileReader :: (FromJSON a, Mergeable a) => Maybe String -> EnvReader a
+appFileReader env = do
         optionalJsonFileReader "app.json"
-        mEnv <- S.gets getEnv
-        maybe (return ()) readEnvFile mEnv
+        fEnv <- S.gets getEnv
+        maybe (return ()) readEnvFile (env <|> fEnv)
     where 
         readEnvFile e = optionalJsonFileReader $ "app." ++ e ++ ".json"
 
@@ -34,7 +35,8 @@ defaultReader = do
     envReader envPrefixFilter
     argsReader 
     prev <- S.get
-    appFileReader
+    env <- S.gets getEnv
+    appFileReader env
     curr <- S.get
     S.put (prev `merge` curr)
 
