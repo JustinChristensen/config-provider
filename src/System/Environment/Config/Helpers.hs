@@ -4,7 +4,7 @@ module System.Environment.Config.Helpers (
     , envNameVar
     , lcase
     , toVal
-    , nodeArray
+    , nodeList
     , splitAtEl
 ) where
 
@@ -21,7 +21,7 @@ newtype Node = Node X.Node
 newtype Content = Content X.Content
 
 instance ToJSON Node where
-    toJSON n@(Node node) = A.object [(decodeUtf8 $ X.name node, nodeArray n)]
+    toJSON n@(Node node) = A.object [(decodeUtf8 $ X.name node, nodeList n)]
 
 instance ToJSON Content where
     toJSON (Content (X.Element node)) = A.toJSON (Node node)
@@ -42,9 +42,9 @@ toVal (Right v) = fromMaybe (String $ decodeUtf8 v) $ A.decodeStrict' v
 lcase :: String -> String
 lcase = map toLower
 
-nodeArray :: Node -> Value
-nodeArray (Node node) = let contents = A.toJSON <$> (Content <$> skipWhitespace (X.contents node))
-                            attrs = A.object $ toAttrPair <$> X.attributes node
+nodeList :: Node -> Value
+nodeList (Node node) = let contents = A.toJSON <$> (Content <$> skipWhitespace (X.contents node))
+                           attrs = A.object $ toAttrPair <$> X.attributes node
                         in toArr $ contents ++ [attrs]
     where toArr = Array . V.fromList
           toAttrPair (k, v) = (decodeUtf8 k, toVal $ Right v)

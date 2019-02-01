@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 module System.Environment.Config.Types (
       Mergeable
-    , FlatConfigMap(..)
+    , ConfigMap(..)
     , ConfigSourceException(..)
     , ConfigGetException(..)
     , EnvPairs(..)
@@ -38,7 +38,7 @@ import qualified Data.HashMap.Strict as H
 newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, Value)] }
 newtype Ini = Ini I.Ini
 
-newtype FlatConfigMap = FlatConfigMap { unFlatConfigMap :: Value }
+newtype ConfigMap = ConfigMap { unConfigMap :: Value }
     deriving (Show, Eq, Generic)
 
 type EnvReader s = StateT s IO ()
@@ -74,26 +74,26 @@ instance Exception ConfigSourceException where
         XenoError e' -> displayException e'
         IniError s -> s
 
-instance Semigroup FlatConfigMap where
-    (<>) (FlatConfigMap c2) (FlatConfigMap c1) = FlatConfigMap $ mergeVal c2 c1
+instance Semigroup ConfigMap where
+    (<>) (ConfigMap c2) (ConfigMap c1) = ConfigMap $ mergeVal c2 c1
         where
             mergeVal (Object o2) (Object o1) = Object $ H.unionWith mergeVal o2 o1
             mergeVal Null v1 = v1
             mergeVal v2 _ = v2
 
-instance Monoid FlatConfigMap where
-    mempty = FlatConfigMap $ Object H.empty
+instance Monoid ConfigMap where
+    mempty = ConfigMap $ Object H.empty
     mappend = (<>)
 
-instance Mergeable FlatConfigMap where
+instance Mergeable ConfigMap where
     empty = mempty
     merge = (<>)
     getEnv = get envNameVar
 
-instance FromJSON FlatConfigMap where
+instance FromJSON ConfigMap where
     parseJSON v = case v of 
-        Object _ -> return $ FlatConfigMap v
-        _ -> typeMismatch "FlatConfigMap" v
+        Object _ -> return $ ConfigMap v
+        _ -> typeMismatch "ConfigMap" v
 
 instance ToJSON EnvPairs where
     toJSON = A.object . map packKey . unEnvPairs
@@ -106,8 +106,8 @@ instance ToJSON Ini where
         where toPair (k, v) = (k, toVal $ Left $ T.unpack v)
               toObj section pairs acc = (section, A.object $ toPair <$> pairs) : acc
 
-getE:: FromJSON a => String -> FlatConfigMap -> Either ConfigGetException a
-getE path fm = getE' path $ unFlatConfigMap fm
+getE:: FromJSON a => String -> ConfigMap -> Either ConfigGetException a
+getE path fm = getE' path $ unConfigMap fm
     where 
         getE' "" v = case A.fromJSON v of
             A.Success a -> Right a
@@ -118,8 +118,8 @@ getE path fm = getE' path $ unFlatConfigMap fm
                                 _ -> Left $ KeyNotFoundError path
         getE' _ _ = Left $ KeyNotFoundError path
 
-getM :: FromJSON a => String -> FlatConfigMap -> Maybe a
+getM :: FromJSON a => String -> ConfigMap -> Maybe a
 getM = get
 
-get :: forall a m. (MonadThrow m, FromJSON a) => String -> FlatConfigMap -> m a
+get :: forall a m. (MonadThrow m, FromJSON a) => String -> ConfigMap -> m a
 get path fm = either throwM return $ getE path fm
