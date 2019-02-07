@@ -1,7 +1,7 @@
-module System.Environment.Config.HelpersSpec (spec) where
+module System.Environment.Config.BaseSpec (spec) where
 
 import Test.Hspec
--- import System.Environment.Config.Helpers
+-- import System.Environment.Config.Base
 
 spec :: Spec
 spec = do

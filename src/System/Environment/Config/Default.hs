@@ -8,7 +8,7 @@ module System.Environment.Config.Default (
 
 import System.Environment.Config.Types
 import System.Environment.Config hiding (getConfig)
-import System.Environment.Config.Helpers (envNameVar)
+import System.Environment.Config.Base (envNameVar)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Applicative ((<|>))
 import qualified Control.Monad.State as S (gets, modify)
@@ -22,7 +22,7 @@ envPrefixFilter = [
     , "port"
     ]
 
-appFileReader :: (FromJSON a, Mergeable a) => Maybe String -> EnvReader a
+appFileReader :: Maybe String -> EnvReader Config
 appFileReader env = do
         optionalJsonFileReader "app.json"
         fEnv <- S.gets getEnv
@@ -30,7 +30,7 @@ appFileReader env = do
     where 
         readEnvFile e = optionalJsonFileReader $ "app." ++ e ++ ".json"
 
-defaultReader :: (FromJSON a, Mergeable a) => EnvReader a
+defaultReader :: EnvReader Config
 defaultReader = do
     env <- envSource envPrefixFilter
     args <- argsSource 
@@ -38,5 +38,5 @@ defaultReader = do
     appFileReader $ getEnv prev
     S.modify (merge prev)
 
-getConfig :: (MonadIO m, FromJSON a, Mergeable a) => m a
+getConfig :: (MonadIO m, FromJSON a) => m a
 getConfig = C.getConfig defaultReader
