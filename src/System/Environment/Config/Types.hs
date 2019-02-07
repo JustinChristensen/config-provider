@@ -1,46 +1,46 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveGeneric #-}
+-- {-# LANGUAGE DeriveGeneric #-}
 module System.Environment.Config.Types (
       Mergeable
+    , ToConfig
     , Config(..)
     , ConfigSourceException(..)
     , ConfigGetException(..)
     , EnvPairs(..)
-    , Node(..)
-    , Content(..)
-    , Ini(..)
     , EnvReader
     , Value(..)
     , FromJSON
     , ToJSON
+    , toConfig      
     , empty      
     , merge
     , getEnv
     , get
     , getM
     , getE
-    , debugConfig
+    , set
+    , swap
 ) where
 
+import Data.Char (isSpace)
 import System.Environment.Config.Helpers
-import GHC.Generics
 import Control.Monad.Catch
 import Control.Monad.State (StateT(..))
 import Data.Aeson (Value(..), FromJSON, ToJSON)
-import Data.Aeson.Types (typeMismatch)
+import Data.Text.Encoding (decodeUtf8)
 import Xeno.Types (XenoException)
+import qualified Data.ByteString.Char8 as B
 import qualified Data.Text as T
 import qualified Data.Aeson as A
 import qualified Data.Ini as I
+import qualified Xeno.DOM as X
 import qualified Data.Yaml as YL
 import qualified Data.HashMap.Strict as H
 
-newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, Value)] }
-newtype Ini = Ini I.Ini
-
-newtype Config = Config { unConfig :: Value }
-    deriving (Show, Eq, Generic)
+data Config = Config Value (H.HashMap String Config)
+    deriving (Show, Eq)
+newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, String)] }
 
 type EnvReader s = StateT s IO ()
 
@@ -52,9 +52,12 @@ data ConfigSourceException =
     deriving (Show)
 
 data ConfigGetException = 
-      KeyNotFoundError String 
+      KeyNotFoundError String
     | ParseValueError String 
     deriving (Show)
+
+class ToConfig a where
+    toConfig :: a -> Config
 
 class Mergeable a where
     empty :: a
@@ -76,14 +79,10 @@ instance Exception ConfigSourceException where
         IniError s -> s
 
 instance Semigroup Config where
-    (<>) (Config c2) (Config c1) = Config $ mergeVal c2 c1
-        where
-            mergeVal (Object o2) (Object o1) = Object $ H.unionWith mergeVal o2 o1
-            mergeVal Null v1 = v1
-            mergeVal v2 _ = v2
+    (<>) (Config v2 p2) (Config v1 p1) = Config (mergeVal v2 v1) $ H.unionWith (<>) p2 p1
 
 instance Monoid Config where
-    mempty = Config $ Object H.empty
+    mempty = Config Null H.empty
     mappend = (<>)
 
 instance Mergeable Config where
@@ -91,47 +90,72 @@ instance Mergeable Config where
     merge = (<>)
     getEnv = get envNameVar
 
-instance FromJSON Config where
-    parseJSON v = case v of 
-        Object _ -> return $ Config v
-        _ -> typeMismatch "Config" v
+instance ToConfig Value where
+    toConfig (Object o) = H.foldrWithKey setProp empty o
+        where setProp k v = setC (T.unpack k) (toConfig v)
+    toConfig v = Config v H.empty
 
-instance ToJSON EnvPairs where
-    toJSON = A.object . map packKey . unEnvPairs
-        where packKey (k, v) = (T.pack k, v)
+instance ToConfig EnvPairs where
+    toConfig = foldr setPair mempty . unEnvPairs
+        where setPair (path, v) = swap (mergeVal $ tryDecodeS v) path
 
-instance ToJSON Ini where
-    toJSON (Ini ini) = let globals = toPair <$> I.iniGlobals ini
-                           sections = H.foldrWithKey toObj [] $ I.iniSections ini
-                       in A.object $ sections ++ globals
-        where toPair (k, v) = (k, toVal $ Left $ T.unpack v)
-              toObj section pairs acc = (section, A.object $ toPair <$> pairs) : acc
+instance ToConfig I.Ini where
+    toConfig ini = let globals = setPairs mempty $ I.iniGlobals ini
+                   in H.foldrWithKey setSection globals $ I.iniSections ini
+        where setPairs = foldr setPair
+              setSection section pairs c = setPairs (swap id (T.unpack section) c) pairs
+              setPair (path, v) = swap (mergeVal $ tryDecodeT v) (T.unpack path)
+
+instance ToConfig X.Node where
+    toConfig node = setC (B.unpack $ X.name node) (nodeConfig node) mempty
+
+instance ToConfig X.Content where
+    toConfig (X.Element node) = toConfig node
+    toConfig (X.Text text) = Config (tryDecodeBS text) H.empty
+    toConfig (X.CData cdata) = Config (String $ decodeUtf8 cdata) H.empty
+
+find :: String -> Config -> Maybe Config
+find "" c = Just c
+find p (Config _ m) = let (k, rest) = splitAtEl '.' p
+                      in case H.lookup k m of
+                          Just c -> find rest c
+                          _ -> Nothing
 
 getE:: FromJSON a => String -> Config -> Either ConfigGetException a
-getE path fm = getE' path $ unConfig fm
-    where 
-        getE' "" v = case A.fromJSON v of
+getE path = maybe (Left $ KeyNotFoundError path) tryParse . find path
+    where
+        tryParse (Config v _) = case A.fromJSON v of
             A.Success a -> Right a
             A.Error e -> Left $ ParseValueError e
-        getE' p (Object m) = let (k, rest) = splitAtEl '.' p
-                             in case H.lookup (T.pack k) m of
-                                Just v -> getE' rest v
-                                _ -> Left $ KeyNotFoundError path
-        getE' _ _ = Left $ KeyNotFoundError path
 
 getM :: FromJSON a => String -> Config -> Maybe a
 getM = get
 
 get :: forall a m. (MonadThrow m, FromJSON a) => String -> Config -> m a
-get path fm = either throwM return $ getE path fm
+get p = either throwM return . getE p
 
-debugConfig :: Config -> IO ()
-debugConfig = putStrLn . debugConfig' 0 . unConfig
-    where
-        debugConfig' depth (Object o) = H.foldrWithKey (toString depth) "" o
-        debugConfig' _ _ = ""
-        toKey depth key = "\n" ++ concat (replicate depth "  ") ++ T.unpack key ++ ": "
-        toString depth key val acc = case val of 
-            Object _ -> acc ++ toKey depth key ++ debugConfig' (succ depth) val
-            Array v -> acc ++ toKey depth key ++ show v
-            _ -> acc ++ toKey depth key ++ show val
+swapC :: (Config -> Config) -> String -> Config -> Config
+swapC f "" c = f c
+swapC f path (Config v m) = let (key, rest) = splitAtEl '.' path
+                                c = swapC f rest empty
+                            in Config v $ H.insertWith (<>) key c m
+
+swap :: (Value -> Value) -> String -> Config -> Config
+swap f = let f' (Config v m) = Config (f v) m in swapC f'
+
+setC :: String -> Config -> Config -> Config
+setC k c = swapC (const c) k
+
+set :: String -> Value -> Config -> Config
+set k v = swap (const v) k
+
+nodeConfig :: X.Node -> Config
+nodeConfig node = let attrs = X.attributes node
+                      contents = skipWhitespace (X.contents node)
+                      attrC = foldr setAttr mempty attrs
+                  in foldr setContent attrC contents 
+    where setAttr (k, v) = set (B.unpack k) (tryDecodeBS v)
+          setContent x c = toConfig x <> c
+          skipWhitespace = filter (not . isWhitespace)
+          isWhitespace (X.Text text) = B.all isSpace text
+          isWhitespace _ = False

@@ -1,32 +1,21 @@
 module System.Environment.Config.Helpers (
-      Node(..)
-    , Content(..)
-    , envNameVar
+      envNameVar
     , lcase
-    , toVal
-    , nodeList
+    , tryDecodeS
+    , tryDecodeT
+    , tryDecodeBS
     , splitAtEl
+    , mergeVal
 ) where
 
-import Data.Char (toLower, isSpace)
-import Data.Aeson (Value(..), ToJSON)
+import Data.Char (toLower)
+import Data.Aeson (Value(..))
 import Data.Maybe (fromMaybe)
-import Data.Text.Encoding (decodeUtf8)
+import Data.Text.Encoding (encodeUtf8, decodeUtf8)
 import qualified Data.ByteString.Char8 as B
+import qualified Data.Text as T
 import qualified Data.Aeson as A
-import qualified Xeno.DOM as X
-import qualified Data.Vector as V
-
-newtype Node = Node X.Node
-newtype Content = Content X.Content
-
-instance ToJSON Node where
-    toJSON n@(Node node) = A.object [(decodeUtf8 $ X.name node, nodeList n)]
-
-instance ToJSON Content where
-    toJSON (Content (X.Element node)) = A.toJSON (Node node)
-    toJSON (Content (X.Text text)) = toVal $ Right text
-    toJSON (Content (X.CData cdata)) = String $ decodeUtf8 cdata
+import qualified Data.HashMap.Strict as H
 
 envNameVar :: String
 envNameVar = "env"
@@ -35,19 +24,19 @@ splitAtEl :: Eq a => a -> [a] -> ([a], [a])
 splitAtEl x xs = let (pre, rest) = span (/= x) xs
                  in (pre, if null rest then rest else tail rest)
 
-toVal :: Either String B.ByteString -> Value
-toVal (Left v) = toVal $ Right $ B.pack v
-toVal (Right v) = fromMaybe (String $ decodeUtf8 v) $ A.decodeStrict' v
+tryDecodeS :: String -> Value
+tryDecodeS = tryDecodeBS . B.pack
+
+tryDecodeT :: T.Text -> Value
+tryDecodeT = tryDecodeBS . encodeUtf8
+
+tryDecodeBS :: B.ByteString -> Value
+tryDecodeBS bs = fromMaybe (String $ decodeUtf8 bs) $ A.decodeStrict' bs
 
 lcase :: String -> String
 lcase = map toLower
 
-nodeList :: Node -> Value
-nodeList (Node node) = let contents = A.toJSON <$> (Content <$> skipWhitespace (X.contents node))
-                           attrs = A.object $ toAttrPair <$> X.attributes node
-                        in toArr $ contents ++ [attrs]
-    where toArr = Array . V.fromList
-          toAttrPair (k, v) = (decodeUtf8 k, toVal $ Right v)
-          skipWhitespace = filter (\c -> case c of
-              X.Text text -> B.all (not . isSpace) text
-              _ -> True)
+mergeVal :: Value -> Value -> Value
+mergeVal (Object o2) (Object o1) = Object $ H.unionWith mergeVal o2 o1
+mergeVal Null v1 = v1
+mergeVal v2 _ = v2

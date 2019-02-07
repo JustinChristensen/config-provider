@@ -10,7 +10,7 @@ import System.IO.Error (isDoesNotExistError)
 import Control.Monad.State (StateT(..), execStateT, liftIO)
 import Data.Char (toLower)
 import Data.List (isPrefixOf, stripPrefix)
-import Data.Aeson (Value(..), FromJSON, ToJSON)
+import Data.Aeson (FromJSON, ToJSON)
 import Data.Maybe (fromMaybe)
 import Data.Either (either)
 import qualified Data.ByteString.Char8 as B
@@ -24,7 +24,7 @@ normalizeKey ('_':'_':cs) = '.' : normalizeKey (dropWhile (== '_') cs)
 normalizeKey (c:cs) = toLower c : normalizeKey cs
 normalizeKey [] = []
 
-filterEnv :: [String] -> [(String, String)] -> [(String, Value)]
+filterEnv :: [String] -> [(String, String)] -> [(String, String)]
 filterEnv prefixes envVars = map envPair $ filter keyMatchesPrefix envVars
     where
         keyMatchesPrefix (k, _) = any ((`isPrefixOf` lcase k) . tailIfTilde . lcase) prefixes
@@ -39,14 +39,14 @@ filterEnv prefixes envVars = map envPair $ filter keyMatchesPrefix envVars
                 stripLongestPrefix lk = fromMaybe lk $
                     foldr (isLongestMatched lk) Nothing prefixes >>= \p ->
                         stripPrefix (lcase p) lk
-            in (normalizeKey $ stripLongestPrefix $ lcase k, toVal $ Left v)
+            in (normalizeKey $ stripLongestPrefix $ lcase k, v)
 
-argToPair :: String -> (String, Value)
+argToPair :: String -> (String, String)
 argToPair ('-':'-':arg) = argToPair arg
 argToPair arg = let (k, v) = splitAtEl '=' arg 
-                in (normalizeKey k, toVal $ Left v)
+                in (normalizeKey k, v)
 
-mapArgs :: [String] -> [(String, Value)]
+mapArgs :: [String] -> [(String, String)]
 mapArgs (a1:a2:args') | a1 == "--" = mapArgs (a2:args')
                       | wantsArg a1 && isArg a2 = argToPair (a1 ++ "=" ++ a2) : mapArgs args'
                       | otherwise = argToPair a1 : mapArgs (a2:args')
@@ -119,7 +119,7 @@ optionalYamlFileReader path = makeEnvReader $ \c -> optionalYamlFile c path
 
 xmlFileE :: (MonadIO m, FromJSON a) => FilePath -> m (Either ConfigSourceException a)
 xmlFileE path = liftIO $ B.readFile path >>= return . X.parse >>= 
-    return . either (Left . XenoError) (fromSource . nodeList . Node)
+    return . either (Left . XenoError) (fromSource . nodeList . XNode)
 
 xmlFile :: (MonadThrow m, MonadIO m, FromJSON a) => FilePath -> m a
 xmlFile = makeThrowF xmlFileE

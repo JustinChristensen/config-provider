@@ -52,12 +52,15 @@ spec = do
                     ("bool", Bool True),
                     ("integer", Number $ scientific 3000 0),
                     ("float", Number $ scientific 31459 (-4)),
-                    ("null", Null)
-                ]
+                    ("null", Null)]
     describe "argToPair" $ do
-        it "strips leading dashes from the key" pending
-        it "splits the key and the value on '='" pending
-        it "normalizes the key" pending
+        it "strips leading dashes from the key" $ 
+            argToPair "--foo" `shouldBe` ("foo", String "")
+        it "splits the key and the value on '='" $ do
+            argToPair "--foo=bar" `shouldBe` ("foo", String "bar")
+            argToPair "foo=9999" `shouldBe` ("foo", Number $ scientific 9999 0)
+        it "normalizes the key" $ do
+            argToPair "--FOO__bar=9999" `shouldBe` ("foo.bar", Number $ scientific 9999 0)
         it "attempts to parse the value" pending
     describe "mapArgs" $ do
         it "creates an associative array from command line args" pending

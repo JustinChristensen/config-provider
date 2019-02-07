@@ -44,7 +44,11 @@ executable config-provider
     ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
     build-depends:
         base >=4.11 && <4.12,
-        config-provider -any
+        -- config-provider -any
+        unordered-containers ==0.2.*,
+        scientific ==0.3.*,
+        aeson ==1.4.*,
+        vector ==0.12.*
 
 test-suite config-provider-test
     type: exitcode-stdio-1.0
