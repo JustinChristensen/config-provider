@@ -1,3 +1,4 @@
+{-# LANGUAGE ExistentialQuantification #-}
 module System.Environment.Config.Default (
       module System.Environment.Config
     , module System.Environment.Config.Types
@@ -25,8 +26,8 @@ envPrefixFilter = [
 appFileReader :: Maybe String -> EnvReader Config
 appFileReader env = do
         optionalJsonFileReader "app.json"
-        fEnv <- S.gets getEnv
-        maybe (return ()) readEnvFile (env <|> fEnv)
+        fileEnv <- S.gets $ get envNameVar
+        maybe (return ()) readEnvFile (env <|> fileEnv)
     where 
         readEnvFile e = optionalJsonFileReader $ "app." ++ e ++ ".json"
 
@@ -34,9 +35,9 @@ defaultReader :: EnvReader Config
 defaultReader = do
     env <- envSource envPrefixFilter
     args <- argsSource 
-    let prev = args `merge` env
-    appFileReader $ getEnv prev
-    S.modify (merge prev)
+    let prev = args <> env
+    appFileReader $ get envNameVar prev
+    S.modify (prev <>)
 
-getConfig :: (MonadIO m, FromJSON a) => m a
+getConfig :: forall a m. (MonadIO m, FromJSON a) => m a
 getConfig = C.getConfig defaultReader

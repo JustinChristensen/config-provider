@@ -1,3 +1,5 @@
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE OverloadedStrings #-}
 module System.Environment.Config.Reader where
 
@@ -10,7 +12,7 @@ import System.IO.Error (isDoesNotExistError)
 import Control.Monad.State (StateT(..), execStateT, liftIO)
 import Data.Char (toLower)
 import Data.List (isPrefixOf, stripPrefix)
-import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson (FromJSON)
 import Data.Maybe (fromMaybe)
 import Data.Either (either)
 import qualified Data.ByteString.Char8 as B
@@ -63,10 +65,10 @@ getEnvPairs prefixes = getEnvironment >>= return . EnvPairs . filterEnv prefixes
 getArgPairs :: IO EnvPairs
 getArgPairs = getArgs >>= return . EnvPairs . mapArgs
 
-makeThrow :: (MonadThrow m) => m (Either ConfigSourceException Config) -> m Config
+makeThrow :: (MonadThrow m, Exception e) => m (Either e Config) -> m Config
 makeThrow source = source >>= either throwM return
 
-makeThrowF :: (MonadThrow m) => (FilePath -> m (Either ConfigSourceException Config)) -> FilePath -> m Config
+makeThrowF :: (MonadThrow m, Exception e) => (FilePath -> m (Either e Config)) -> FilePath -> m Config
 makeThrowF source path = makeThrow $ source path
 
 makeOptional :: (MonadCatch m, MonadIO m) => (FilePath -> m Config) -> Config -> FilePath -> m Config
@@ -80,8 +82,8 @@ makeEnvReader source = StateT $ \c1 -> do
 remoteReader :: (Config -> IO Config) -> EnvReader Config
 remoteReader = makeEnvReader
 
-jsonFileE :: MonadIO m => FilePath -> m (Either ConfigSourceException Config)
-jsonFileE path = liftIO $ A.eitherDecodeFileStrict' path >>= 
+jsonFileE :: MonadIO m => FilePath -> m (Either JsonSourceException Config)
+jsonFileE path = liftIO $ A.eitherDecodeFileStrict' @Value path >>= 
     return . either (Left . AesonError) (return . toConfig)
 
 jsonFile :: (MonadThrow m, MonadIO m) => FilePath -> m Config
@@ -96,8 +98,8 @@ jsonFileReader path = makeEnvReader $ const $ jsonFile path
 optionalJsonFileReader :: FilePath -> EnvReader Config
 optionalJsonFileReader path = makeEnvReader $ \c -> optionalJsonFile c path
 
-yamlFileE :: MonadIO m => FilePath -> m (Either ConfigSourceException Config)
-yamlFileE path = liftIO $ YL.decodeFileEither path >>= 
+yamlFileE :: MonadIO m => FilePath -> m (Either YamlSourceException Config)
+yamlFileE path = liftIO $ YL.decodeFileEither @Value path >>= 
     return . either (Left . YamlError) (return . toConfig)
 
 yamlFile :: (MonadThrow m, MonadIO m) => FilePath -> m Config
@@ -112,7 +114,7 @@ yamlFileReader path = makeEnvReader $ const $ jsonFile path
 optionalYamlFileReader :: FilePath -> EnvReader Config
 optionalYamlFileReader path = makeEnvReader $ \c -> optionalYamlFile c path
 
-xmlFileE :: MonadIO m => FilePath -> m (Either ConfigSourceException Config)
+xmlFileE :: MonadIO m => FilePath -> m (Either XmlSourceException Config)
 xmlFileE path = liftIO $ B.readFile path >>= return . X.parse >>= 
     return . either (Left . XenoError) (return . nodeConfig)
 
@@ -128,7 +130,7 @@ xmlFileReader path = makeEnvReader $ const $ xmlFile path
 optionalXmlFileReader :: FilePath -> EnvReader Config
 optionalXmlFileReader path = makeEnvReader $ \c -> optionalXmlFile c path
 
-iniFileE :: MonadIO m => FilePath -> m (Either ConfigSourceException Config)
+iniFileE :: MonadIO m => FilePath -> m (Either IniSourceException Config)
 iniFileE path = liftIO $ I.readIniFile path >>=
     return . either (Left . IniError) (return . toConfig)
 
@@ -141,30 +143,24 @@ optionalIniFile = makeOptional iniFile
 iniFileReader :: FilePath -> EnvReader Config
 iniFileReader path = makeEnvReader $ const $ iniFile path
 
-optionalIniFileReader :: FilePath -> EnvReader a
+optionalIniFileReader :: FilePath -> EnvReader Config
 optionalIniFileReader path = makeEnvReader $ \c -> optionalIniFile c path
 
-envSourceE :: (MonadIO m) => [String] -> m (Either ConfigSourceException Config)
-envSourceE prefixes = do
+envSource :: MonadIO m => [String] -> m Config
+envSource prefixes = do
     envPairs <- liftIO $ getEnvPairs prefixes
     return $ toConfig envPairs
-
-envSource :: (MonadThrow m, MonadIO m) => [String] -> m Config
-envSource prefixes = makeThrow $ envSourceE prefixes
 
 envReader :: [String] -> EnvReader Config
 envReader prefixes = makeEnvReader $ const $ envSource prefixes
 
-argsSourceE :: MonadIO m => m (Either ConfigSourceException Config)
-argsSourceE = do
+argsSource :: MonadIO m => m Config
+argsSource = do
     argPairs <- liftIO getArgPairs 
     return $ toConfig argPairs
-
-argsSource :: (MonadThrow m, MonadIO m) => m Config
-argsSource = makeThrow argsSourceE
 
 argsReader :: EnvReader Config
 argsReader = makeEnvReader $ const argsSource
 
-getConfig :: (MonadIO m, FromJSON a) => EnvReader a -> m a
-getConfig reader = liftIO $ execStateT reader mempty
+getConfig :: forall a m. (MonadIO m, FromJSON a) => EnvReader Config -> m a
+getConfig reader = liftIO $ execStateT reader mempty >>= bind ""

@@ -27,12 +27,31 @@ instance Monoid Config where
     mempty = Config Null H.empty
     mappend = (<>)
 
-data ConfigSourceException = 
-      AesonError String 
-    | YamlError YL.ParseException
-    | XenoError XenoException
-    | IniError String
+newtype JsonSourceException = AesonError String 
     deriving (Show)
+
+instance Exception JsonSourceException where
+    displayException (AesonError e) = e
+
+data YamlSourceException = YamlAesonError String | YamlError YL.ParseException
+    deriving (Show)
+
+instance Exception YamlSourceException where
+    displayException e = case e of
+        YamlAesonError s -> s
+        YamlError e' -> displayException e'
+
+newtype XmlSourceException = XenoError XenoException
+    deriving (Show)
+
+instance Exception XmlSourceException where
+    displayException (XenoError e) = displayException e
+
+newtype IniSourceException = IniError String
+    deriving (Show)
+
+instance Exception IniSourceException where
+    displayException (IniError e) = e
 
 data ConfigGetException = 
       KeyNotFoundError String
@@ -43,13 +62,6 @@ instance Exception ConfigGetException where
     displayException e = case e of
         KeyNotFoundError k -> "key " ++ k ++ " not found in configuration"
         ParseValueError s -> s
-
-instance Exception ConfigSourceException where
-    displayException e = case e of
-        AesonError s -> s
-        YamlError e' -> displayException e'
-        XenoError e' -> displayException e'
-        IniError s -> s
 
 newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, String)] }
 
@@ -63,8 +75,11 @@ instance ToJSON Config where
                         | otherwise = Object $ H.fromList $ H.foldrWithKey toPair mempty m
         where toPair k c acc = (T.pack k, A.toJSON c) : acc
 
+class ToConfig a where
+    toConfig :: a -> Config
+
 instance ToConfig Value where
-    toConfig (Object o) = H.foldrWithKey setProp empty o
+    toConfig (Object o) = H.foldrWithKey setProp mempty o
         where setProp k v = setC (T.unpack k) (toConfig v)
     toConfig v = Config v H.empty
 
@@ -78,9 +93,6 @@ instance ToConfig I.Ini where
         where setPairs = foldr setPair
               setSection section pairs c = setPairs (swap id (T.unpack section) c) pairs
               setPair (path, v) = swap (mergeVal $ tryDecodeT v) (T.unpack path)
-
-class ToConfig a where
-    toConfig :: a -> Config
 
 instance ToConfig X.Node where
     toConfig node = setC (B.unpack $ X.name node) (nodeConfig node) mempty

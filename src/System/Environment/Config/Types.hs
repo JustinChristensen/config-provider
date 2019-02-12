@@ -1,6 +1,9 @@
 module System.Environment.Config.Types (
       Config(..)
-    , ConfigSourceException(..)
+    , JsonSourceException(..)
+    , YamlSourceException(..)
+    , XmlSourceException(..)
+    , IniSourceException(..)
     , ConfigGetException(..)
     , EnvPairs(..)
     , EnvReader
@@ -9,15 +12,14 @@ module System.Environment.Config.Types (
     , ToJSON
     , ToConfig
     , toConfig      
-    , empty      
-    , merge
-    , getEnv
     , get
     , getM
     , getE
     , set
     , swap
     , bind
+    , bindM
+    , bindE
 ) where
 
 import System.Environment.Config.Base
