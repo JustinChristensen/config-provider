@@ -1,5 +1,5 @@
 module System.Environment.Config.Types (
-      Config(..)
+      ConfigNode(..)
     , JsonSourceException(..)
     , YamlSourceException(..)
     , XmlSourceException(..)
@@ -7,9 +7,7 @@ module System.Environment.Config.Types (
     , ConfigGetException(..)
     , EnvPairs(..)
     , EnvReader
-    , Value(..)
     , FromJSON
-    , ToJSON
     , ToConfig
     , toConfig      
     , get
@@ -23,4 +21,4 @@ module System.Environment.Config.Types (
 ) where
 
 import System.Environment.Config.Base
-import Data.Aeson (Value(..), FromJSON, ToJSON)
+import Data.Aeson (FromJSON)

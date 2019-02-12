@@ -1,28 +1,26 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 module Main where
 
 import System.Environment.Config.Default
 import GHC.Generics
 
 data LogLevel = DEBUG | INFO | WARN | ERROR 
-    deriving (Show, Generic)
+    deriving (Show, Generic, FromJSON)
 
-data Logging = Logging {
+newtype Logging = Logging {
         logLevel :: LogLevel
-    } deriving (Show, Generic)
+    } deriving (Show, Generic, FromJSON)
 
-data AppConfig = AppConfig {
+data Config = Config {
         env :: String,
         host :: String,
+        port :: Int,
         logging :: Logging
-    } deriving (Show, Generic)
-
-instance FromJSON LogLevel
-instance FromJSON Logging
-instance FromJSON AppConfig
+    } deriving (Show, Generic, FromJSON)
 
 main :: IO ()
 main = do
-    config <- getConfig @AppConfig
+    config <- getConfig @Config
     print config

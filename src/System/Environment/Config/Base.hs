@@ -1,3 +1,4 @@
+{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 module System.Environment.Config.Base where
@@ -17,14 +18,14 @@ import qualified Data.Yaml as YL
 import qualified Data.Aeson as A
 import qualified Data.HashMap.Strict as H
 
-data Config = Config Value (H.HashMap String Config)
+data ConfigNode = ConfigNode Value (H.HashMap String ConfigNode)
     deriving (Show, Eq)
 
-instance Semigroup Config where
-    (<>) (Config v2 p2) (Config v1 p1) = Config (mergeVal v2 v1) $ H.unionWith (<>) p2 p1
+instance Semigroup ConfigNode where
+    (<>) (ConfigNode v2 p2) (ConfigNode v1 p1) = ConfigNode (mergeVal v2 v1) $ H.unionWith (<>) p2 p1
 
-instance Monoid Config where
-    mempty = Config Null H.empty
+instance Monoid ConfigNode where
+    mempty = ConfigNode Null H.empty
     mappend = (<>)
 
 newtype JsonSourceException = AesonError String 
@@ -33,12 +34,11 @@ newtype JsonSourceException = AesonError String
 instance Exception JsonSourceException where
     displayException (AesonError e) = e
 
-data YamlSourceException = YamlAesonError String | YamlError YL.ParseException
+newtype YamlSourceException = YamlError YL.ParseException
     deriving (Show)
 
 instance Exception YamlSourceException where
     displayException e = case e of
-        YamlAesonError s -> s
         YamlError e' -> displayException e'
 
 newtype XmlSourceException = XenoError XenoException
@@ -67,21 +67,26 @@ newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, String)] }
 
 type EnvReader s = StateT s IO ()
 
-instance FromJSON Config where
+instance FromJSON ConfigNode where
     parseJSON = return . toConfig
 
-instance ToJSON Config where
-    toJSON (Config v m) | H.null m = v
-                        | otherwise = Object $ H.fromList $ H.foldrWithKey toPair mempty m
+instance ToJSON ConfigNode where
+    toJSON (ConfigNode v m) | H.null m = v
+                            | otherwise = Object $ H.fromList $ H.foldrWithKey toPair mempty m
         where toPair k c acc = (T.pack k, A.toJSON c) : acc
 
 class ToConfig a where
-    toConfig :: a -> Config
+    toConfig :: a -> ConfigNode
+    default toConfig :: ToJSON a => a -> ConfigNode
+    toConfig = toConfig . A.toJSON
+
+instance ToConfig ConfigNode where
+    toConfig = id
 
 instance ToConfig Value where
     toConfig (Object o) = H.foldrWithKey setProp mempty o
         where setProp k v = setC (T.unpack k) (toConfig v)
-    toConfig v = Config v H.empty
+    toConfig v = ConfigNode v H.empty
 
 instance ToConfig EnvPairs where
     toConfig = foldr setPair mempty . unEnvPairs
@@ -99,8 +104,8 @@ instance ToConfig X.Node where
 
 instance ToConfig X.Content where
     toConfig (X.Element node) = toConfig node
-    toConfig (X.Text text) = Config (tryDecodeBS text) H.empty
-    toConfig (X.CData cdata) = Config (String $ decodeUtf8 cdata) H.empty
+    toConfig (X.Text text) = ConfigNode (tryDecodeBS text) H.empty
+    toConfig (X.CData cdata) = ConfigNode (String $ decodeUtf8 cdata) H.empty
 
 envNameVar :: String
 envNameVar = "env"
@@ -126,7 +131,7 @@ mergeVal (Object o2) (Object o1) = Object $ H.unionWith mergeVal o2 o1
 mergeVal Null v1 = v1
 mergeVal v2 _ = v2
 
-nodeConfig :: X.Node -> Config
+nodeConfig :: X.Node -> ConfigNode
 nodeConfig node = let attrs = X.attributes node
                       contents = skipWhitespace (X.contents node)
                       attrC = foldr setAttr mempty attrs
@@ -137,53 +142,53 @@ nodeConfig node = let attrs = X.attributes node
           isWhitespace (X.Text text) = B.all isSpace text
           isWhitespace _ = False
 
-setC :: String -> Config -> Config -> Config
+setC :: String -> ConfigNode -> ConfigNode -> ConfigNode
 setC k c = swapC (const c) k
 
-swapC :: (Config -> Config) -> String -> Config -> Config
+swapC :: (ConfigNode -> ConfigNode) -> String -> ConfigNode -> ConfigNode
 swapC f "" c = f c
-swapC f path (Config v m) = let (key, rest) = splitAtEl '.' path
-                                c = swapC f rest mempty
-                            in Config v $ H.insertWith (<>) key c m
+swapC f path (ConfigNode v m) = let (key, rest) = splitAtEl '.' path
+                                    c = swapC f rest mempty
+                            in ConfigNode v $ H.insertWith (<>) key c m
 
-find :: String -> Config -> Maybe Config
+find :: String -> ConfigNode -> Maybe ConfigNode
 find "" c = Just c
-find p (Config _ m) = let (k, rest) = splitAtEl '.' p
+find p (ConfigNode _ m) = let (k, rest) = splitAtEl '.' p
                       in case H.lookup k m of
                           Just c -> find rest c
                           _ -> Nothing
 
-makeGet:: FromJSON a => (Config -> Either ConfigGetException a) -> String -> Config -> Either ConfigGetException a
+makeGet:: FromJSON a => (ConfigNode -> Either ConfigGetException a) -> String -> ConfigNode -> Either ConfigGetException a
 makeGet f p = maybe (Left $ KeyNotFoundError p) f . find p
 
-getE:: FromJSON a => String -> Config -> Either ConfigGetException a
+getE:: FromJSON a => String -> ConfigNode -> Either ConfigGetException a
 getE = makeGet tryParse
     where
-        tryParse (Config v _) = case A.fromJSON v of
+        tryParse (ConfigNode v _) = case A.fromJSON v of
             A.Success a -> Right a
             A.Error e -> Left $ ParseValueError e
 
-getM :: FromJSON a => String -> Config -> Maybe a
+getM :: FromJSON a => String -> ConfigNode -> Maybe a
 getM = get
 
-get :: forall a m. (MonadThrow m, FromJSON a) => String -> Config -> m a
+get :: forall a m. (MonadThrow m, FromJSON a) => String -> ConfigNode -> m a
 get p = either throwM return . getE p
 
-bindE:: FromJSON a => String -> Config -> Either ConfigGetException a
+bindE:: FromJSON a => String -> ConfigNode -> Either ConfigGetException a
 bindE = makeGet tryBind
     where
         tryBind c = case A.fromJSON $ A.toJSON c of
             A.Success a -> Right a
             A.Error e -> Left $ ParseValueError e
 
-bindM :: FromJSON a => String -> Config -> Maybe a
+bindM :: FromJSON a => String -> ConfigNode -> Maybe a
 bindM = bind
 
-bind :: forall a m. (MonadThrow m, FromJSON a) => String -> Config -> m a
+bind :: forall a m. (MonadThrow m, FromJSON a) => String -> ConfigNode -> m a
 bind p = either throwM return . bindE p
 
-swap :: (Value -> Value) -> String -> Config -> Config
-swap f = let f' (Config v m) = Config (f v) m in swapC f'
+swap :: (Value -> Value) -> String -> ConfigNode -> ConfigNode
+swap f = let f' (ConfigNode v m) = ConfigNode (f v) m in swapC f'
 
-set :: String -> Value -> Config -> Config
+set :: String -> Value -> ConfigNode -> ConfigNode
 set k v = swap (const v) k

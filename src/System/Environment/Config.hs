@@ -1,32 +1,18 @@
 module System.Environment.Config (
       module System.Environment.Config.Types
-    , jsonFileE
-    , jsonFile
-    , optionalJsonFile
-    , jsonFileReader
-    , optionalJsonFileReader
-    , yamlFileE
-    , yamlFile
-    , optionalYamlFile
-    , yamlFileReader
-    , optionalYamlFileReader
-    , xmlFileE
-    , xmlFile
-    , optionalXmlFile
-    , xmlFileReader
-    , optionalXmlFileReader
-    , iniFileE
-    , iniFile
-    , optionalIniFile
-    , iniFileReader
-    , optionalIniFileReader
-    , envSource
-    , envReader
-    , argsSource
-    , argsReader
-    , remoteReader
+    , readRemote
+    , requireJsonFile
+    , readJsonFile
+    , requireYamlFile
+    , readYamlFile
+    , requireXmlFile
+    , readXmlFile
+    , requireIniFile
+    , readIniFile
+    , readEnv
+    , readArgs
     , getConfig
 ) where
 
 import System.Environment.Config.Reader
-import System.Environment.Config.Types
+import System.Environment.Config.Types hiding (EnvPairs, getM, getE, bindM, bindE, set, swap)
