@@ -18,6 +18,28 @@ import qualified Data.Yaml as YL
 import qualified Data.Aeson as A
 import qualified Data.HashMap.Strict as H
 
+class ToConfig a where
+    toConfig :: a -> ConfigNode
+    toConfig = toConfigOptions defaultOptions
+
+    toConfigOptions :: Options -> a -> ConfigNode
+    default toConfigOptions :: ToJSON a => Options -> a -> ConfigNode
+    toConfigOptions _ = toConfig . A.toJSON
+
+class FromConfig a where
+    fromConfig :: ConfigNode -> a
+    fromConfig = fromConfigOptions defaultOptions
+
+    fromConfigOptions :: Options -> ConfigNode -> a
+    default fromConfigOptions :: FromJSON a => Options -> ConfigNode -> a
+    fromConfigOptions _ _ = undefined
+
+newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, String)] }
+
+type EnvReader s = StateT s IO ()
+
+data Options = Options
+
 data ConfigNode = ConfigNode Value (H.HashMap String ConfigNode)
     deriving (Show, Eq)
 
@@ -27,6 +49,41 @@ instance Semigroup ConfigNode where
 instance Monoid ConfigNode where
     mempty = ConfigNode Null H.empty
     mappend = (<>)
+
+instance FromJSON ConfigNode where
+    parseJSON = return . toConfig
+
+instance ToJSON ConfigNode where
+    toJSON (ConfigNode v m) | H.null m = v
+                            | otherwise = Object $ H.fromList $ H.foldrWithKey toPair mempty m
+        where toPair k c acc = (T.pack k, A.toJSON c) : acc
+
+instance ToConfig ConfigNode where
+    toConfigOptions _ = id
+
+instance ToConfig Value where
+    toConfigOptions _ (Object o) = H.foldrWithKey setProp mempty o
+        where setProp k v = setC (T.unpack k) (toConfig v)
+    toConfigOptions _ v = ConfigNode v H.empty
+
+instance ToConfig EnvPairs where
+    toConfigOptions _ = foldr setPair mempty . unEnvPairs
+        where setPair (path, v) = swap (mergeVal $ tryDecodeS v) path
+
+instance ToConfig I.Ini where
+    toConfigOptions _ ini = let globals = setPairs mempty $ I.iniGlobals ini
+                   in H.foldrWithKey setSection globals $ I.iniSections ini
+        where setPairs = foldr setPair
+              setSection section pairs c = setPairs (swap id (T.unpack section) c) pairs
+              setPair (path, v) = swap (mergeVal $ tryDecodeT v) (T.unpack path)
+
+instance ToConfig X.Node where
+    toConfigOptions _ node = setC (B.unpack $ X.name node) (nodeConfig node) mempty
+
+instance ToConfig X.Content where
+    toConfigOptions _ (X.Element node) = toConfig node
+    toConfigOptions _ (X.Text text) = ConfigNode (tryDecodeBS text) H.empty
+    toConfigOptions _ (X.CData cdata) = ConfigNode (String $ decodeUtf8 cdata) H.empty
 
 newtype JsonSourceException = AesonError String 
     deriving (Show)
@@ -63,49 +120,8 @@ instance Exception ConfigGetException where
         KeyNotFoundError k -> "key " ++ k ++ " not found in configuration"
         ParseValueError s -> s
 
-newtype EnvPairs = EnvPairs { unEnvPairs :: [(String, String)] }
-
-type EnvReader s = StateT s IO ()
-
-instance FromJSON ConfigNode where
-    parseJSON = return . toConfig
-
-instance ToJSON ConfigNode where
-    toJSON (ConfigNode v m) | H.null m = v
-                            | otherwise = Object $ H.fromList $ H.foldrWithKey toPair mempty m
-        where toPair k c acc = (T.pack k, A.toJSON c) : acc
-
-class ToConfig a where
-    toConfig :: a -> ConfigNode
-    default toConfig :: ToJSON a => a -> ConfigNode
-    toConfig = toConfig . A.toJSON
-
-instance ToConfig ConfigNode where
-    toConfig = id
-
-instance ToConfig Value where
-    toConfig (Object o) = H.foldrWithKey setProp mempty o
-        where setProp k v = setC (T.unpack k) (toConfig v)
-    toConfig v = ConfigNode v H.empty
-
-instance ToConfig EnvPairs where
-    toConfig = foldr setPair mempty . unEnvPairs
-        where setPair (path, v) = swap (mergeVal $ tryDecodeS v) path
-
-instance ToConfig I.Ini where
-    toConfig ini = let globals = setPairs mempty $ I.iniGlobals ini
-                   in H.foldrWithKey setSection globals $ I.iniSections ini
-        where setPairs = foldr setPair
-              setSection section pairs c = setPairs (swap id (T.unpack section) c) pairs
-              setPair (path, v) = swap (mergeVal $ tryDecodeT v) (T.unpack path)
-
-instance ToConfig X.Node where
-    toConfig node = setC (B.unpack $ X.name node) (nodeConfig node) mempty
-
-instance ToConfig X.Content where
-    toConfig (X.Element node) = toConfig node
-    toConfig (X.Text text) = ConfigNode (tryDecodeBS text) H.empty
-    toConfig (X.CData cdata) = ConfigNode (String $ decodeUtf8 cdata) H.empty
+defaultOptions :: Options
+defaultOptions = Options
 
 envNameVar :: String
 envNameVar = "env"

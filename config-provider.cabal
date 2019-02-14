@@ -45,8 +45,6 @@ executable config-provider
     ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
     build-depends:
         base >=4.11 && <4.12,
-        aeson ==1.4.*,
-        template-haskell -any,
         config-provider -any
 
 test-suite config-provider-test
