@@ -149,14 +149,14 @@ swapC :: (ConfigNode -> ConfigNode) -> String -> ConfigNode -> ConfigNode
 swapC f "" c = f c
 swapC f path (ConfigNode v m) = let (key, rest) = splitAtEl '.' path
                                     c = swapC f rest mempty
-                            in ConfigNode v $ H.insertWith (<>) key c m
+                                in ConfigNode v $ H.insertWith (<>) key c m
 
 find :: String -> ConfigNode -> Maybe ConfigNode
 find "" c = Just c
 find p (ConfigNode _ m) = let (k, rest) = splitAtEl '.' p
-                      in case H.lookup k m of
-                          Just c -> find rest c
-                          _ -> Nothing
+                          in case H.lookup k m of
+                              Just c -> find rest c
+                              _ -> Nothing
 
 makeGet:: FromJSON a => (ConfigNode -> Either ConfigGetException a) -> String -> ConfigNode -> Either ConfigGetException a
 makeGet f p = maybe (Left $ KeyNotFoundError p) f . find p
