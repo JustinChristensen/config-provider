@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 module System.Environment.Config.Reader where
@@ -5,41 +6,48 @@ module System.Environment.Config.Reader where
 import System.Environment.Config.Types
 import System.Environment.Config.Source
 import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.State (execStateT, liftIO)
+import Control.Monad.Reader (Reader)
 import Data.Aeson (FromJSON)
+import qualified Xeno.DOM as X
+import qualified Data.Ini as I
 
-readRemote :: ToConfig a => (ConfigNode -> IO a) -> EnvReader ConfigNode
+makeEnvReader :: (ConfigNode -> IO ConfigNode) -> EnvReader Options ConfigNode ()
+makeEnvReader source = state $ \c1 -> do
+    c2 <- source c1 
+    ((), toConfig c2 <> c1)
+
+readRemote :: (ConfigNode -> IO ConfigNode) -> EnvReader Options ConfigNode ()
 readRemote = makeEnvReader
 
-requireJsonFile :: FilePath -> EnvReader ConfigNode
-requireJsonFile path = makeEnvReader $ const $ jsonFile path
+requireJsonFile :: FromJSON a => (a -> Reader Options ConfigNode) -> FilePath -> EnvReader Options ConfigNode ()
+requireJsonFile toConfig path = makeEnvReader $ const $ jsonFileSource toConfig path
 
-readJsonFile :: FilePath -> EnvReader ConfigNode
-readJsonFile path = makeEnvReader $ \c -> optionalJsonFile c path
+readJsonFile :: FromJSON a => (a -> Reader Options ConfigNode) -> FilePath -> EnvReader Options ConfigNode ()
+readJsonFile toConfig path = makeEnvReader $ \c -> optionalJsonFileSource toConfig c path
 
-requireYamlFile :: FilePath -> EnvReader ConfigNode
-requireYamlFile path = makeEnvReader $ const $ jsonFile path
+requireYamlFile :: FromJSON a => (a -> Reader Options ConfigNode) -> FilePath -> EnvReader Options ConfigNode ()
+requireYamlFile toConfig path = makeEnvReader $ const $ jsonFileSource toConfig path
 
-readYamlFile :: FilePath -> EnvReader ConfigNode
-readYamlFile path = makeEnvReader $ \c -> optionalYamlFile c path
+readYamlFile :: FromJSON a => (a -> Reader Options ConfigNode) -> FilePath -> EnvReader Options ConfigNode ()
+readYamlFile toConfig path = makeEnvReader $ \c -> optionalYamlFileSource toConfig c path
 
-requireXmlFile :: FilePath -> EnvReader ConfigNode
-requireXmlFile path = makeEnvReader $ const $ xmlFile path
+requireXmlFile :: (X.Node -> Reader Options ConfigNode) -> FilePath -> EnvReader Options ConfigNode ()
+requireXmlFile toConfig path = makeEnvReader $ const $ xmlFileSource toConfig path
 
-readXmlFile :: FilePath -> EnvReader ConfigNode
-readXmlFile path = makeEnvReader $ \c -> optionalXmlFile c path
+readXmlFile :: (X.Node -> Reader Options ConfigNode) -> FilePath -> EnvReader Options ConfigNode ()
+readXmlFile toConfig path = makeEnvReader $ \c -> optionalXmlFileSource toConfig c path
 
-requireIniFile :: FilePath -> EnvReader ConfigNode
-requireIniFile path = makeEnvReader $ const $ iniFile path
+requireIniFile :: (I.Ini -> Reader Options ConfigNode) -> FilePath -> EnvReader Options ConfigNode ()
+requireIniFile toConfig path = makeEnvReader $ const $ iniFileSource toConfig path
 
-readIniFile :: FilePath -> EnvReader ConfigNode
-readIniFile path = makeEnvReader $ \c -> optionalIniFile c path
+readIniFile :: (I.Ini -> Reader Options ConfigNode) -> FilePath -> EnvReader Options ConfigNode ()
+readIniFile toConfig path = makeEnvReader $ \c -> optionalIniFileSource toConfig c path
 
-readEnv :: [String] -> EnvReader ConfigNode
-readEnv prefixes = makeEnvReader $ const $ envSource prefixes
+readEnv :: ([String] -> [(String, String)] -> Reader Options ConfigNode) -> [String] -> EnvReader Options ConfigNode ()
+readEnv toConfig prefixes = makeEnvReader $ const $ envSource toConfig prefixes
 
-readArgs :: EnvReader ConfigNode
-readArgs = makeEnvReader $ const argsSource
+readArgs :: ([(String, String)] -> Reader Options ConfigNode) -> EnvReader Options ConfigNode ()
+readArgs toConfig = makeEnvReader $ const $ argsSource toConfig
 
-getConfig :: forall a m. (MonadIO m, FromJSON a) => EnvReader ConfigNode -> m a
-getConfig reader = liftIO $ execStateT reader mempty >>= bind ""
+getConfig :: forall a m. (MonadIO m, FromConfig a) => Options -> EnvReader Options ConfigNode () -> m a
+getConfig opts reader = runEnvReader opts reader mempty >>= bind ""

@@ -45,7 +45,8 @@ executable config-provider
     ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
     build-depends:
         base >=4.11 && <4.12,
-        config-provider -any
+        exceptions ==0.10.*,
+        mtl ==2.2.*
 
 test-suite config-provider-test
     type: exitcode-stdio-1.0

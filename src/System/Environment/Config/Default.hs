@@ -6,39 +6,39 @@ module System.Environment.Config.Default (
     , defaultReader
 ) where
 
-import System.Environment.Config.Source
 import System.Environment.Config.Types
 import System.Environment.Config hiding (getConfig)
-import System.Environment.Config.Base (envNameVar)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Applicative ((<|>))
-import Data.Aeson (FromJSON)
-import qualified Control.Monad.State as S (gets, modify)
+import Control.Monad.State (gets, modify)
+import Control.Monad.Reader (reader)
 import qualified System.Environment.Config as C (getConfig)
 
-envPrefixFilter :: [String]
-envPrefixFilter = [
-      envNameVar
+envPrefixFilter :: String -> [String]
+envPrefixFilter envNameKey = [
+      envNameKey
     , "~hs__"
     , "host"
     , "port"
     ]
 
-readAppFiles :: Maybe String -> EnvReader ConfigNode
+readAppFiles :: Maybe String -> EnvReader Options ConfigNode ()
 readAppFiles env = do
+        envKey <- reader envNameKey
         readJsonFile "app.json"
-        fileEnv <- S.gets $ get envNameVar
+        fileEnv <- gets $ get envKey
         maybe (return ()) readEnvFile (env <|> fileEnv)
     where 
         readEnvFile e = readJsonFile $ "app." ++ e ++ ".json"
 
-defaultReader :: EnvReader ConfigNode
+defaultReader :: EnvReader Options ConfigNode ()
 defaultReader = do
-    env <- envSource envPrefixFilter
+    envKey <- reader envNameKey
+    env <- envSource $ envPrefixFilter envKey
     args <- argsSource 
     let prev = args <> env
-    readAppFiles $ get envNameVar prev
-    S.modify (prev <>)
+    readAppFiles $ get envKey prev
+    modify (prev <>)
 
-getConfig :: forall a m. (MonadIO m, FromJSON a) => m a
+getConfig :: forall a m. (MonadIO m, FromConfig a) => m a
 getConfig = C.getConfig defaultReader
