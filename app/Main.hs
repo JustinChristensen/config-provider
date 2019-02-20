@@ -92,6 +92,7 @@ fromArgs _ = undefined
 get' :: FromSource a => (a -> Reader Options ConfigNode) -> (b -> IO a) -> b -> EnvReader Options ConfigNode ConfigNode
 get' = undefined
 
+-- toConfig -> source -> args...
 merge' :: FromSource a => (a -> Reader Options ConfigNode) -> (b -> IO a) -> b -> EnvReader Options ConfigNode ()
 merge' = undefined
 
@@ -100,6 +101,12 @@ get = get' toConfig
 
 merge :: (ToConfig a, FromSource a) => (b -> IO a) -> b -> EnvReader Options ConfigNode ()
 merge = merge' toConfig
+
+mergeJson :: (a -> IO Json) -> a -> EnvReader Options ConfigNode () 
+mergeJson = merge @Json
+
+mergeJsonFile :: FilePath -> EnvReader Options ConfigNode () 
+mergeJsonFile = merge @Json fromFile
 
 runEnvReader :: MonadIO m => Options -> ConfigNode -> EnvReader Options ConfigNode a -> m ()
 runEnvReader = undefined
@@ -113,13 +120,12 @@ getConfig' = undefined
 getConfig :: forall a m. (MonadIO m, FromConfig a) => m a
 getConfig = undefined
 
-getApiKeyFromVault  :: IO ()
-getApiKeyFromVault = undefined
-
 getVal :: forall a m. (MonadThrow m, FromConfig a) => String -> ConfigNode -> m a
 getVal = undefined
 
+-- TODO: think about using typeclasses for variable arity merge
 -- TODO: think about how the arity of get and merge can depend on the arity of toConfig and from
+-- TODO: think about other sources (file, memory, remote)
 main :: IO ()
 main = do
     config <- getConfig' $ do
