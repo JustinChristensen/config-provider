@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module System.Environment.Config.Base where
 
-import Control.Monad.State (StateT(..))
+import Control.Monad.State (StateT(..), execStateT)
 import Data.Char (toLower, isSpace)
 import Data.Aeson (Value(..), FromJSON, ToJSON)
 import Data.Maybe (fromMaybe)
@@ -18,6 +18,7 @@ import qualified Data.Ini as I
 import qualified Data.Yaml as YL
 import qualified Data.Aeson as A
 import qualified Data.Map.Strict as M
+import qualified Data.HashMap.Strict as H
 
 -- TODO: generic implementation
 class FromConfig a where
@@ -36,16 +37,16 @@ data ConfigNode = ConfigNode Value (M.Map String ConfigNode)
     deriving (Show, Eq)
 
 instance Semigroup ConfigNode where
-    (<>) (ConfigNode v2 p2) (ConfigNode v1 p1) = ConfigNode (mergeVal v2 v1) $ H.unionWith (<>) p2 p1
+    (<>) (ConfigNode v2 p2) (ConfigNode v1 p1) = ConfigNode (mergeVal v2 v1) $ M.unionWith (<>) p2 p1
 
 instance Monoid ConfigNode where
-    mempty = ConfigNode Null H.empty
+    mempty = ConfigNode Null M.empty
     mappend = (<>)
 
 instance ToJSON ConfigNode where
     toJSON (ConfigNode v m) 
-            | H.null m = v
-            | otherwise = Object $ H.fromList $ H.foldrWithKey toPair mempty m
+            | M.null m = v
+            | otherwise = Object $ H.fromList $ M.foldrWithKey toPair mempty m
         where toPair k c acc = (T.pack k, A.toJSON c) : acc
 
 newtype JsonSourceException = AesonError String 
@@ -129,9 +130,9 @@ valueToConfig = undefined
     
     -- valueToConfig'
     -- where
-    --     valueToConfig' (Object o) = H.foldrWithKey setProp mempty o
+    --     valueToConfig' (Object o) = M.foldrWithKey setProp mempty o
     --         where setProp k v = setC (T.unpack k) (valueToConfig' v)
-    --     valueToConfig' v = ConfigNode v H.empty
+    --     valueToConfig' v = ConfigNode v M.empty
 
 pairsToConfig :: [(String, String)] -> Reader Options ConfigNode
 pairsToConfig = undefined
@@ -146,7 +147,7 @@ iniToConfig :: I.Ini -> Reader Options ConfigNode
 iniToConfig ini = undefined
 
     --     let globals = setPairs mempty $ I.iniGlobals ini
-    --     in H.foldrWithKey setSection globals $ I.iniSections ini
+    --     in M.foldrWithKey setSection globals $ I.iniSections ini
     -- where 
     --     setPairs = foldr setPair
     --     setSection section pairs c = setPairs (swap id (T.unpack section) c) pairs
@@ -159,8 +160,8 @@ xmlToConfig node = do
 
 xmlContentToConfig :: X.Content -> Reader Options ConfigNode
 xmlContentToConfig (X.Element node) = xmlToConfig node
-xmlContentToConfig (X.Text text) = return $ ConfigNode (tryDecodeBS text) H.empty
-xmlContentToConfig (X.CData cdata) = return $ ConfigNode (String $ decodeUtf8 cdata) H.empty
+xmlContentToConfig (X.Text text) = return $ ConfigNode (tryDecodeBS text) M.empty
+xmlContentToConfig (X.CData cdata) = return $ ConfigNode (String $ decodeUtf8 cdata) M.empty
 
 nodeConfig :: X.Node -> Reader Options ConfigNode
 nodeConfig node = undefined
@@ -204,13 +205,13 @@ swapC f "" c = f c
 swapC f path (ConfigNode v m) = 
     let (key, rest) = splitAtEl '.' path
         c = swapC f rest mempty
-    in ConfigNode v $ H.insertWith (<>) key c m
+    in ConfigNode v $ M.insertWith (<>) key c m
 
 find :: String -> ConfigNode -> Maybe ConfigNode
 find "" c = Just c
 find p (ConfigNode _ m) = 
     let (k, rest) = splitAtEl '.' p
-    in case H.lookup k m of
+    in case M.lookup k m of
         Just c -> find rest c
         _ -> Nothing
 
@@ -230,17 +231,17 @@ getM = get
 get :: forall a m. (MonadThrow m, FromJSON a) => String -> ConfigNode -> m a
 get p = either throwM return . getE p 
 
-bindE:: FromJSON a => String -> ConfigNode -> Either ConfigGetException a
+bindE:: (FromJSON a, FromConfig a) => String -> ConfigNode -> Either ConfigGetException a
 bindE = makeGet tryBind
     where
         tryBind c = case A.fromJSON $ A.toJSON c of
             A.Success a -> Right a
             A.Error e -> Left $ ParseValueError e
 
-bindM :: FromConfig a => String -> ConfigNode -> Maybe a
+bindM :: (FromJSON a, FromConfig a) => String -> ConfigNode -> Maybe a
 bindM = bind
 
-bind :: forall a m. (MonadThrow m, FromJSON a) => String -> ConfigNode -> m a
+bind :: forall a m. (MonadThrow m, FromJSON a, FromConfig a) => String -> ConfigNode -> m a
 bind p = either throwM return . bindE p
 
 swap :: (Value -> Value) -> String -> ConfigNode -> ConfigNode

@@ -7,8 +7,9 @@ import System.Environment.Config.Base
 import System.Environment (getArgs, getEnvironment)
 import Control.Monad.Catch
 import Control.Monad.IO.Class (MonadIO)
-import System.IO.Error (isDoesNotExistError)
+import Control.Monad.Reader (Reader)
 import Control.Monad.State (StateT(..), liftIO)
+import System.IO.Error (isDoesNotExistError)
 import Data.Char (toLower)
 import Data.List (isPrefixOf, stripPrefix)
 import Data.Maybe (fromMaybe)
@@ -30,11 +31,13 @@ makeThrowF :: Exception e => FileSourceFn a e -> (a -> Reader Options ConfigNode
 makeThrowF source toConfig path = makeThrow (`source` path) toConfig
 
 makeOptional :: ((a -> Reader Options ConfigNode) -> ConfigNode -> FilePath -> EnvSource Options ConfigNode) -> (a -> Reader Options ConfigNode) -> ConfigNode -> FilePath -> EnvSource Options ConfigNode
-makeOptional source toConfig config path = catchIf isDoesNotExistError (source toConfig path) (const $ return config)
+makeOptional source toConfig config path = catchIf isDoesNotExistError (source toConfig config path) (const $ return config)
 
+-- Value -> Reader Options ConfigNode -> Reader Options (Either JsonSourceException ConfigNode)
+-- String -> JsonSourceException -> Either JsonSourceException ConfigNode -> Reader Options (Either JsonSourceException ConfigNode)
 jsonFileSourceE :: FromJSON a => (a -> Reader Options ConfigNode) -> FilePath -> EnvSource Options (Either JsonSourceException ConfigNode)
 jsonFileSourceE toConfig path = liftIO $ A.eitherDecodeFileStrict' path >>= 
-    return . either (Left . AesonError) (return . toConfig)
+    either (return . Left . AesonError) (return . toConfig)
 
 jsonFileSource :: FromJSON a => (a -> Reader Options ConfigNode) -> FilePath -> EnvSource Options ConfigNode
 jsonFileSource = makeThrowF jsonFileSourceE
