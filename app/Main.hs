@@ -1,11 +1,17 @@
+{-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Main where
 
 import Control.Monad.Catch
 import Control.Monad.IO.Class
-import Control.Monad.Reader (ReaderT, Reader)
-import Control.Monad.State (StateT)
+import Control.Monad.Reader (MonadReader, ReaderT, Reader)
+import Control.Monad.State (MonadState, StateT)
 
 -- fromSource then 
 -- toConfig then 
@@ -19,7 +25,10 @@ data Ini'
 data ConfigNode
 data Options
 
-type EnvReader o s a = ReaderT o (StateT s IO) a
+newtype EnvReader o s a = EnvReader { runEnvReader' :: ReaderT o (StateT s IO) a }
+    deriving (Functor, Applicative, Monad, 
+              MonadState s, MonadReader o, 
+              MonadThrow, MonadCatch, MonadMask)
 
 newtype Json = Json Value'
 newtype Yaml = Yaml Value'
@@ -69,53 +78,53 @@ instance FromSource Ini
 instance FromSource Pairs
 
 class FromSource a => FromFile a where
-    fromFile :: FilePath -> IO a 
-    fromFile = undefined
+    file :: FilePath -> EnvReader Options ConfigNode a 
+    file = undefined
 
-    fromRequiredFile :: FilePath -> IO a
-    fromRequiredFile = undefined
+    requiredFile :: FilePath -> EnvReader Options ConfigNode a
+    requiredFile = undefined
 
 instance FromFile Json -- read json file with aeson
 instance FromFile Yaml -- read yaml file with yaml
 instance FromFile Xml -- read xml file with xeno
 instance FromFile Ini -- read ini file with ini
 
-from :: (a -> IO b) -> IO b
-from = undefined
+infixl 4 `from`
+from :: EnvReader Options ConfigNode (a -> b) -> EnvReader Options ConfigNode a -> EnvReader Options ConfigNode b
+from = (<*>)
 
-fromEnv :: [String] -> IO a
-fromEnv = undefined
+env :: EnvReader Options ConfigNode Pairs
+env = undefined
 
-fromArgs :: a -> IO b
-fromArgs _ = undefined
+args :: EnvReader Options ConfigNode Pairs
+args = undefined
 
-get' :: FromSource a => (a -> Reader Options ConfigNode) -> (b -> IO a) -> b -> EnvReader Options ConfigNode ConfigNode
+get' :: ToConfig a => (a -> Reader Options ConfigNode) -> EnvReader Options ConfigNode (a -> ConfigNode)
 get' = undefined
 
--- toConfig -> source -> args...
-merge' :: FromSource a => (a -> Reader Options ConfigNode) -> (b -> IO a) -> b -> EnvReader Options ConfigNode ()
+merge' :: ToConfig a => (a -> Reader Options ConfigNode) -> EnvReader Options ConfigNode (a -> ())
 merge' = undefined
 
-get :: (ToConfig a, FromSource a) => (b -> IO a) -> b -> EnvReader Options ConfigNode ConfigNode
+get :: ToConfig a => EnvReader Options ConfigNode (a -> ConfigNode)
 get = get' toConfig
 
-merge :: (ToConfig a, FromSource a) => (b -> IO a) -> b -> EnvReader Options ConfigNode ()
+merge :: ToConfig a => EnvReader Options ConfigNode (a -> ())
 merge = merge' toConfig
 
-mergeJson :: (a -> IO Json) -> a -> EnvReader Options ConfigNode () 
+mergeJson :: EnvReader Options ConfigNode (Json -> ())
 mergeJson = merge @Json
 
 mergeJsonFile :: FilePath -> EnvReader Options ConfigNode () 
-mergeJsonFile = merge @Json fromFile
+mergeJsonFile = (merge @Json `from`) . file
 
 runEnvReader :: MonadIO m => Options -> ConfigNode -> EnvReader Options ConfigNode a -> m ()
 runEnvReader = undefined
 
-getConfig'' :: forall a m. (MonadIO m, FromConfig a) => Options -> EnvReader Options ConfigNode () -> m a
-getConfig'' = undefined
+getConfigO :: forall a m. (MonadIO m, FromConfig a) => Options -> EnvReader Options ConfigNode () -> m a
+getConfigO = undefined
 
-getConfig' :: forall a m. (MonadIO m, FromConfig a) => EnvReader Options ConfigNode () -> m a
-getConfig' = undefined
+getConfigR :: forall a m. (MonadIO m, FromConfig a) => EnvReader Options ConfigNode () -> m a
+getConfigR = undefined
 
 getConfig :: forall a m. (MonadIO m, FromConfig a) => m a
 getConfig = undefined
@@ -123,43 +132,40 @@ getConfig = undefined
 getVal :: forall a m. (MonadThrow m, FromConfig a) => String -> ConfigNode -> m a
 getVal = undefined
 
--- TODO: think about using typeclasses for variable arity merge
--- TODO: think about how the arity of get and merge can depend on the arity of toConfig and from
--- TODO: think about other sources (file, memory, remote)
 main :: IO ()
 main = do
-    config <- getConfig' $ do
-        _ <- get @Json fromFile "config/app.json" -- >>= \configNode
-        _ <- get @Json fromRequiredFile "config/app.json" -- >>= \configNode
+    config <- getConfigR $ do
+        _ <- get @Json `from` file "config/app.json" -- >>= \configNode
+        _ <- get @Json `from` requiredFile "config/app.json" -- >>= \configNode
 
-        _ <- get @Yaml fromFile "config/app.yaml" -- >>= \configNode
-        _ <- get @Yaml fromRequiredFile "config/app.yaml" -- >>= \configNode
+        _ <- get @Yaml `from` file "config/app.yaml" -- >>= \configNode
+        _ <- get @Yaml `from` requiredFile "config/app.yaml" -- >>= \configNode
 
-        _ <- get @Xml fromFile "config/app.xml" -- >>= \configNode
-        _ <- get @Xml fromRequiredFile "config/app.xml" -- >>= \configNode
+        _ <- get @Xml `from` file "config/app.xml" -- >>= \configNode
+        _ <- get @Xml `from` requiredFile "config/app.xml" -- >>= \configNode
 
-        _ <- get @Ini fromFile "config/app.ini" -- >>= \configNode
-        _ <- get @Ini fromRequiredFile "config/app.ini" -- >>= \configNode
+        _ <- get @Ini `from` file "config/app.ini" -- >>= \configNode
+        _ <- get @Ini `from` requiredFile "config/app.ini" -- >>= \configNode
 
-        _ <- get @Pairs fromEnv ["env", "host", "port"]
-        _ <- get @Pairs fromArgs ()
+        _ <- get @Pairs `from` env
+        _ <- get @Pairs `from` args
 
-        merge @Json fromFile "config/app.json"
-        merge @Json fromRequiredFile "config/app.json"
+        merge @Json `from` file "config/app.json" `from` file "config/foo.json"
+        merge @Json `from` requiredFile "config/app.json"
 
-        merge @Json from $ return undefined
+        merge @Json `from` return undefined
 
-        merge @Yaml fromFile "config/app.yaml"
-        merge @Yaml fromRequiredFile "config/app.yaml"
+        merge @Yaml `from` file "config/app.yaml"
+        merge @Yaml `from` requiredFile "config/app.yaml"
 
-        merge @Xml fromFile "config/app.xml"
-        merge @Xml fromRequiredFile "config/app.xml"
+        merge @Xml `from` file "config/app.xml"
+        merge @Xml `from` requiredFile "config/app.xml"
 
-        merge @Ini fromFile "config/app.ini"
-        merge @Ini fromRequiredFile "config/app.ini"
+        merge @Ini `from` file "config/app.ini"
+        merge @Ini `from` requiredFile "config/app.ini"
 
-        merge @Pairs fromEnv ["env", "host", "port"]
-        merge @Pairs fromArgs ()
+        merge @Pairs `from` env
+        merge @Pairs `from` args
 
     _ <- getVal @ConfigNode "foo.bar" config 
 
