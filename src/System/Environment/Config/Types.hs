@@ -1,23 +1,29 @@
 module System.Environment.Config.Types (
       Options(..)
-    , ConfigNode(..)
+    , ConfigNodeF(..)
+    , EnvReader(..)
     , JsonSourceException(..)
     , YamlSourceException(..)
     , XmlSourceException(..)
     , IniSourceException(..)
     , ConfigGetException(..)
-    , EnvSource
-    , EnvReader
+    , ConfigNode
+    , Path
+    , Key
+    , Value
     , FromConfig
+    , ToConfig
+    , Json
+    , Yaml
+    , Xml
+    , Ini
+    , Env
+    , Args
+    , fromConfig
+    , toConfig
     , runEnvReader
     , get
-    , getM
-    , getE
-    , set
-    , swap
     , bind
-    , bindM
-    , bindE
 ) where
 
 import System.Environment.Config.Base

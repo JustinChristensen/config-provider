@@ -1,86 +1,79 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE ExistentialQuantification #-}
 module System.Environment.Config.Source where
 
 import System.Environment.Config.Types
 import System.Environment.Config.Base
 import System.Environment (getArgs, getEnvironment)
 import Control.Monad.Catch
-import Control.Monad.IO.Class (MonadIO)
-import Control.Monad.Reader (Reader)
-import Control.Monad.State (StateT(..), liftIO)
 import System.IO.Error (isDoesNotExistError)
-import Data.Char (toLower)
-import Data.List (isPrefixOf, stripPrefix)
-import Data.Maybe (fromMaybe)
-import Data.Aeson (Value, FromJSON)
-import Data.Either (either)
+import Control.Monad.Reader (Reader)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Data.ByteString.Char8 as B
 import qualified Xeno.DOM as X
 import qualified Data.Aeson as A
 import qualified Data.Ini as I
 import qualified Data.Yaml as Y
 
-type SourceFn a e = (a -> Reader Options ConfigNode) -> EnvSource Options (Either e ConfigNode)
-type FileSourceFn a e = (a -> Reader Options ConfigNode) -> FilePath -> EnvSource Options (Either e ConfigNode)
+class ToConfig a => FromSource a
 
-makeThrow :: Exception e => SourceFn a e -> (a -> Reader Options ConfigNode) -> EnvSource Options ConfigNode
-makeThrow source toConfig = source toConfig >>= either throwM return
+instance FromSource Json
+instance FromSource Yaml
+instance FromSource Xml
+instance FromSource Ini
+instance FromSource Env
+instance FromSource Args
+instance FromSource a => FromSource (Maybe a)
 
-makeThrowF :: Exception e => FileSourceFn a e -> (a -> Reader Options ConfigNode) -> FilePath -> EnvSource Options ConfigNode
-makeThrowF source toConfig path = makeThrow (`source` path) toConfig
+class FromSource a => FromFile a where
+    file :: FilePath -> EnvReader Options (Maybe a)
+    requiredFile :: FilePath -> EnvReader Options a
 
-makeOptional :: ((a -> Reader Options ConfigNode) -> ConfigNode -> FilePath -> EnvSource Options ConfigNode) -> (a -> Reader Options ConfigNode) -> ConfigNode -> FilePath -> EnvSource Options ConfigNode
-makeOptional source toConfig config path = catchIf isDoesNotExistError (source toConfig config path) (const $ return config)
+instance FromFile Json where
+    file = makeOptional requiredFile
+    requiredFile = makeThrowF jsonFileE
 
--- Value -> Reader Options ConfigNode -> Reader Options (Either JsonSourceException ConfigNode)
--- String -> JsonSourceException -> Either JsonSourceException ConfigNode -> Reader Options (Either JsonSourceException ConfigNode)
-jsonFileSourceE :: FromJSON a => (a -> Reader Options ConfigNode) -> FilePath -> EnvSource Options (Either JsonSourceException ConfigNode)
-jsonFileSourceE toConfig path = liftIO $ A.eitherDecodeFileStrict' path >>= 
-    either (return . Left . AesonError) (return . toConfig)
+instance FromFile Yaml where
+    file = makeOptional requiredFile
+    requiredFile = makeThrowF yamlFileE
 
-jsonFileSource :: FromJSON a => (a -> Reader Options ConfigNode) -> FilePath -> EnvSource Options ConfigNode
-jsonFileSource = makeThrowF jsonFileSourceE
+instance FromFile Xml where
+    file = makeOptional requiredFile
+    requiredFile = makeThrowF xmlFileE
 
-optionalJsonFileSource :: FromJSON a => (a -> Reader Options ConfigNode) -> ConfigNode -> FilePath -> EnvSource Options ConfigNode
-optionalJsonFileSource = makeOptional jsonFileSource
+instance FromFile Ini where
+    file = makeOptional requiredFile
+    requiredFile = makeThrowF iniFileE
 
-yamlFileSourceE :: FromJSON a => (a -> Reader Options ConfigNode) -> FilePath -> EnvSource Options (Either YamlSourceException ConfigNode)
-yamlFileSourceE toConfig path = liftIO $ Y.decodeFileEither path >>= 
-    return . either (Left . YamlError) (return . toConfig)
+infix 2 `mapUsing`
+mapUsing :: EnvReader Options a -> (a -> Reader Options ConfigNode) -> EnvReader Options ConfigNode
+mapUsing src toConf = src >>= liftReader . toConf
 
-yamlFileSource :: FromJSON a => (a -> Reader Options ConfigNode) -> FilePath -> EnvSource Options ConfigNode
-yamlFileSource = makeThrowF yamlFileSourceE
+env :: EnvReader Options Env
+env = liftIO $ getEnvironment >>= return . Env
 
-optionalYamlFileSource :: FromJSON a => (a -> Reader Options ConfigNode) -> ConfigNode -> FilePath -> EnvSource Options ConfigNode
-optionalYamlFileSource = makeOptional yamlFileSource
+args :: EnvReader Options Args
+args = liftIO $ getArgs >>= return . Args
 
-xmlFileSourceE :: (X.Node -> Reader Options ConfigNode) -> FilePath -> EnvSource Options (Either XmlSourceException ConfigNode)
-xmlFileSourceE toConfig path = liftIO $ B.readFile path >>= return . X.parse >>= 
-    return . either (Left . XenoError) (return . toConfig)
+makeThrow :: (MonadThrow m, Exception e, FromSource a) => m (Either e a) -> m a
+makeThrow src = src >>= either throwM return
 
-xmlFileSource :: (X.Node -> Reader Options ConfigNode) -> FilePath -> EnvSource Options ConfigNode
-xmlFileSource = makeThrowF xmlFileSourceE
+makeThrowF :: (MonadThrow m, Exception e, FromFile a) => (FilePath -> m (Either e a)) -> FilePath -> m a
+makeThrowF src path = makeThrow $ src path
 
-optionalXmlFileSource :: (X.Node -> Reader Options ConfigNode) -> ConfigNode -> FilePath -> EnvSource Options ConfigNode
-optionalXmlFileSource = makeOptional xmlFileSource
+makeOptional :: (MonadCatch m, MonadIO m, FromFile a) => (FilePath -> m a) -> FilePath -> m (Maybe a)
+makeOptional src path = catchIf isDoesNotExistError (Just <$> src path) (return . const Nothing)
 
-iniFileSourceE :: (I.Ini -> Reader Options ConfigNode) -> FilePath -> EnvSource Options (Either IniSourceException ConfigNode)
-iniFileSourceE toConfig path = liftIO $ I.readIniFile path >>=
-    return . either (Left . IniError) (return . toConfig)
+jsonFileE :: MonadIO m => FilePath -> m (Either JsonSourceException Json)
+jsonFileE path = liftIO $ A.eitherDecodeFileStrict' path >>=
+    return . either (Left . AesonError) (return . Json)
 
-iniFileSource :: (I.Ini -> Reader Options ConfigNode) -> FilePath -> EnvSource Options ConfigNode
-iniFileSource = makeThrowF iniFileSourceE
+yamlFileE :: MonadIO m => FilePath -> m (Either YamlSourceException Yaml)
+yamlFileE path = liftIO $ Y.decodeFileEither path >>=
+    return . either (Left . YamlError) (return . Yaml)
 
-optionalIniFileSource :: (I.Ini -> Reader Options ConfigNode) -> ConfigNode -> FilePath -> EnvSource Options ConfigNode
-optionalIniFileSource = makeOptional iniFileSource
+xmlFileE :: MonadIO m => FilePath -> m (Either XmlSourceException Xml)
+xmlFileE path = liftIO $ B.readFile path >>= return . X.parse >>=
+    return . either (Left . XenoError) (return . Xml)
 
-envSource :: ([String] -> [(String, String)] -> Reader Options ConfigNode) -> [String] -> EnvSource Options ConfigNode
-envSource toConfig prefixes = do
-    envPairs <- liftIO getEnvironment
-    return $ toConfig prefixes envPairs
-
-argsSource :: ([(String, String)] -> Reader Options ConfigNode) -> EnvSource Options ConfigNode
-argsSource toConfig = do
-    argPairs <- liftIO getArgs
-    return $ toConfig argPairs
+iniFileE :: MonadIO m => FilePath -> m (Either IniSourceException Ini)
+iniFileE path = liftIO $ I.readIniFile path >>=
+    return . either (Left . IniError) (return . Ini)
